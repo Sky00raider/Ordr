@@ -7,6 +7,7 @@ from starlette.testclient import TestClient
 
 from ordr.contracts import TRANSITIONS, State
 from ordr.store.server import STORE, mcp
+from ordr.store.state import StoreError
 
 ATTA = {"skuId": "sku_sunrise_atta_5kg", "spinId": "spin_sunrise_atta_5kg", "quantity": 1}
 MILK = {"skuId": "sku_nandini_toned_1l", "spinId": "spin_nandini_toned_1l", "quantity": 1}
@@ -42,7 +43,7 @@ def test_waiting_for_cart_state_exists_and_goes_only_to_prepared_aborted_expired
 async def test_search_gives_two_milks_with_two_pack_sizes_and_stock_fields():
     data = await call("search_products", addressId=HOME, query="milk")
     names = {p["displayName"] for p in data["products"]}
-    assert {"Nandini Toned Milk", "Heritage Full Cream Milk"} <= names
+    assert {"Nandini Toned Milk", "Greenmeadow Full Cream Milk"} <= names
     nandini = next(p for p in data["products"] if p["brand"] == "Nandini")
     assert [v["quantityDescription"] for v in nandini["variations"]] == ["500 ml", "1 L"]
     variation = nandini["variations"][1]
@@ -161,17 +162,60 @@ async def test_empty_cart_and_bad_inputs_place_nothing():
     assert STORE.orders == []
 
 
-async def test_upi_order_is_pending_until_confirm_order():
+async def test_upi_order_is_pending_until_paid_and_confirmed():
     await fill(ATTA, MILK)
     out = await call("checkout", addressId=HOME)
-    status = await call("check_payment_status", paasId=out["paasId"], orderId=out["orderId"])
+    ids = {"paasId": out["paasId"], "orderId": out["orderId"]}
+    status = await call("check_payment_status", **ids)
     assert (status["status"], status["terminal"]) == ("PENDING", False)
+    STORE.pay(out["paasId"])
+    status = await call("check_payment_status", **ids)
+    assert status["isTerminalSuccess"] is True
+    assert "confirmed" not in status
+    order = (await call("get_orders"))["orders"][0]
+    assert (order["status"], order["paymentStatus"]) == ("PENDING_PAYMENT", "SUCCESS")
     done = await call("confirm_order", orderId=out["orderId"], paasId=out["paasId"])
     assert done["result"] == "success"
-    status = await call("check_payment_status", paasId=out["paasId"], orderId=out["orderId"])
-    assert status["isTerminalSuccess"] is True
+    status = await call("check_payment_status", **ids)
+    assert status["confirmed"] is True
     order = (await call("get_orders"))["orders"][0]
     assert (order["status"], order["paymentStatus"]) == ("CONFIRMED", "SUCCESS")
+
+
+async def test_confirm_order_does_not_complete_an_unpaid_order():
+    await fill(ATTA, MILK)
+    out = await call("checkout", addressId=HOME)
+    done = await call("confirm_order", orderId=out["orderId"], paasId=out["paasId"])
+    assert done["result"] == "failed"
+    order = (await call("get_orders"))["orders"][0]
+    assert (order["status"], order["paymentStatus"]) == ("PENDING_PAYMENT", "PENDING")
+
+
+async def test_a_paid_order_never_expires(fresh_store):
+    await fill(ATTA, MILK)
+    out = await call("checkout", addressId=HOME)
+    STORE.pay(out["paasId"])
+    fresh_store.now[0] += 10_000
+    status = await call("check_payment_status", paasId=out["paasId"], orderId=out["orderId"])
+    assert status["isTerminalSuccess"] is True
+    done = await call("confirm_order", orderId=out["orderId"], paasId=out["paasId"])
+    assert done["result"] == "success"
+    assert (await call("get_orders"))["orders"][0]["status"] == "CONFIRMED"
+
+
+async def test_cannot_pay_twice_or_after_expiry(fresh_store):
+    await fill(ATTA, MILK)
+    first = await call("checkout", addressId=HOME)
+    STORE.pay(first["paasId"])
+    with pytest.raises(StoreError):
+        STORE.pay(first["paasId"])
+    await fill(ATTA)
+    second = await call("checkout", addressId=HOME)
+    fresh_store.now[0] += 301
+    with pytest.raises(StoreError):
+        STORE.pay(second["paasId"])
+    with pytest.raises(StoreError):
+        STORE.pay("paas_unknown")
 
 
 async def test_confirm_order_refuses_a_mismatched_pair():
@@ -228,3 +272,14 @@ def test_demo_switch_route():
     assert client.post("/demo/switch", json={"switch": "nope"}).status_code == 400
     assert client.post("/demo/switch", json={"switch": "reset"}).json() == {"ok": True}
     assert STORE.extra_fee_paise == 0
+
+
+def test_demo_pay_route_marks_payment_success_but_not_the_order():
+    STORE.cart = {"spin_sunrise_atta_5kg": 1, "spin_nandini_toned_1l": 1}
+    paas_id = STORE.checkout(HOME)["paasId"]
+    client = TestClient(mcp.http_app())
+    assert client.post("/demo/pay", json={"paasId": "nope"}).status_code == 400
+    assert client.post("/demo/pay", json={"paasId": paas_id}).json()["status"] == "SUCCESS"
+    assert client.post("/demo/pay", json={"paasId": paas_id}).status_code == 400
+    order = STORE.get_orders()["orders"][0]
+    assert (order["status"], order["paymentStatus"]) == ("PENDING_PAYMENT", "SUCCESS")

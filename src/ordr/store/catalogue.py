@@ -40,14 +40,14 @@ BUILTIN: list[dict[str, Any]] = [
         ],
     },
     {
-        "product_id": "p_heritage_fc",
-        "name": "Heritage Full Cream Milk",
-        "brand": "Heritage",
+        "product_id": "p_greenmeadow_fc",
+        "name": "Greenmeadow Full Cream Milk",
+        "brand": "Greenmeadow",
         "category": "milk",
         "keywords": ["dairy", "haalu"],
         "variations": [
-            _v("heritage_fc_500ml", "500 ml", 36, 34, 10),
-            _v("heritage_fc_1l", "1 L", 70, 66, 10),
+            _v("greenmeadow_fc_500ml", "500 ml", 36, 34, 10),
+            _v("greenmeadow_fc_1l", "1 L", 70, 66, 10),
         ],
     },
     {
@@ -82,11 +82,11 @@ BUILTIN: list[dict[str, Any]] = [
     },
     {
         "product_id": "p_toor",
-        "name": "Annapurna Select Toor Dal",
-        "brand": "Annapurna Select",
+        "name": "Everyday Select Toor Dal",
+        "brand": "Everyday Select",
         "category": "staples",
         "keywords": ["dal", "tuvar", "togari bele"],
-        "variations": [_v("annapurna_toor_1kg", "1 kg", 165, 155, 5)],
+        "variations": [_v("everyday_toor_1kg", "1 kg", 165, 155, 5)],
     },
     {
         "product_id": "p_sugar",
@@ -141,13 +141,13 @@ BUILTIN: list[dict[str, Any]] = [
     },
     {
         "product_id": "p_oil",
-        "name": "SunDrop Sunflower Oil",
-        "brand": "SunDrop",
+        "name": "Brightfield Sunflower Oil",
+        "brand": "Brightfield",
         "category": "staples",
         "keywords": ["oil", "cooking oil", "enne"],
         "variations": [
-            _v("sundrop_oil_1l", "1 L", 160, 149, 4),
-            _v("sundrop_oil_5l", "5 L", 780, 745, 2),
+            _v("brightfield_oil_1l", "1 L", 160, 149, 4),
+            _v("brightfield_oil_5l", "5 L", 780, 745, 2),
         ],
     },
     {

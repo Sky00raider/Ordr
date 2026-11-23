@@ -29,14 +29,14 @@ ADDRESSES = [
     {
         "id": "addr_home",
         "addressLine": "12, 3rd Cross, Jayanagar 4th Block, Bengaluru 560011",
-        "phoneNumber": "9000000001",
+        "phoneNumber": "0000000000",
         "addressCategory": "Home",
         "addressTag": "Home",
     },
     {
         "id": "addr_other",
         "addressLine": "Flat 7, Lake View Apartments, HSR Layout, Bengaluru 560102",
-        "phoneNumber": "9000000002",
+        "phoneNumber": "0000000000",
         "addressCategory": "Other",
         "addressTag": "Friend",
     },
@@ -126,6 +126,7 @@ class DemoStore:
         for order in self.orders:
             if (
                 order["status"] == "PENDING_PAYMENT"
+                and order["payment_status"] == "PENDING"
                 and now - order["created_at"] >= UNPAID_EXPIRY_S
             ):
                 order["status"] = "FAILED"
@@ -470,22 +471,35 @@ class DemoStore:
                 "cartTotal": rupees(order["total"]),
                 "addressId": order["address"]["id"],
             }
-            if status == "SUCCESS":
+            if order["status"] == "CONFIRMED" and status == "SUCCESS":
                 data["confirmed"] = True
             return data
 
+    def pay(self, paas_id: str) -> dict:
+        """Simulated UPI PIN. Marks the payment SUCCESS. The order stays PENDING_PAYMENT
+        until confirm_order. Not an MCP tool: only the demo route calls this."""
+        with self._lock:
+            self._expire()
+            order = self._order_by_paas(paas_id)
+            if order["status"] != "PENDING_PAYMENT" or order["payment_status"] != "PENDING":
+                raise StoreError("Payment is not pending (already paid, expired or not UPI)")
+            order["payment_status"] = "SUCCESS"
+            order["updated_at"] = self.clock()
+            return {"paasId": paas_id, "orderId": order["order_id"], "status": "SUCCESS"}
+
     def confirm_order(self, order_id: str, paas_id: str, transaction_id: str | None = None) -> dict:
-        """The simulated UPI PIN step: completes a PENDING_PAYMENT order."""
+        """Completes an order, but only if its payment is SUCCESS. Otherwise result "failed"
+        and the order is left as it was."""
         with self._lock:
             self._expire()
             order = self._order_by_paas(paas_id)
             if order_id != order["order_id"]:
                 raise StoreError("orderId does not match paasId")
-            if order["status"] == "PENDING_PAYMENT":
+            if order["payment_status"] == "SUCCESS" and order["status"] == "PENDING_PAYMENT":
                 order["status"] = "CONFIRMED"
-                order["payment_status"] = "SUCCESS"
                 order["updated_at"] = self.clock()
-            result = "failed" if order["status"] == "FAILED" else "success"
+            paid = order["payment_status"] == "SUCCESS"
+            result = "success" if paid else "failed"
             return {
                 "orderId": order["order_id"],
                 "paasId": paas_id,

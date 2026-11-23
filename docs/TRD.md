@@ -168,7 +168,7 @@ Rules:
 3. Run the PRD section 6 checks, including that only one order would be created.
 4. `APPROVED` to `COMMITTING` (mark used).
 5. `checkout` with UPI set explicitly, 15 s timeout. Error or timeout: read `get_orders`, never call again. Not clearly placed: `NEEDS_REVIEW`.
-6. Read the order back. Mismatch: `NEEDS_REVIEW`, no payment message.
+6. Read the order back with `get_orders`. It has no `spinId`, so compare `sku_id`, qty, address and total. Mismatch: `NEEDS_REVIEW`, no payment message.
 7. `PLACED_PENDING_PAYMENT`. Only now write the payment message to the outbox.
 
 ## 6. Interfaces
@@ -263,3 +263,4 @@ Tests never call paid APIs.
 | Does Sarvam's Opus output play as a WhatsApp voice message, or does it need converting? | Arya |
 | Is Sarvam good enough on our families' voice notes? | Arya, Farzin |
 | Team name | All |
+| Real Swiggy `get_orders` may not return Instamart item IDs (the docs show `itemId` as optional). If it does not, step 6 cannot compare `sku_id`. Check against the docs and decide the fallback | Niranjan |
