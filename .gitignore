@@ -1,0 +1,44 @@
+# Internal notes, not for the public repo
+docs/archive/
+docs/research/
+
+# Secrets and personal data
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials*.json
+.claude/settings.local.json
+
+# Voice notes and recordings
+*.ogg
+*.opus
+*.wav
+*.m4a
+*.mp3
+*.mp4
+
+# Databases and logs
+*.db
+*.db-*
+*.sqlite*
+*.log
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# Node
+node_modules/
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
