@@ -436,12 +436,9 @@ Anything unfinished above, item matching test on family voice notes, Swiggy appl
 
 Backup approver if not done, more languages, WhatsApp templates and a proper business number. Vendor staging only if access has arrived.
 
-### Suggested split
+### Roles
 
-1. Gate: checks, hash, states, log
-2. Dummy store and switches, item matching and defaults
-3. WhatsApp bot, webhook, buttons, voice
-4. PPT, video, family interviews and voice notes
+See `TRD.md`, section 1.
 
 ## 9. Demo script (about 3 min)
 

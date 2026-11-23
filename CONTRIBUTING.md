@@ -16,13 +16,17 @@ pytest
 
 ## Who owns what
 
-| Folder | Job | PRD |
+Full task list: `docs/TRD.md`, section 1.
+
+| Folder | Owner | Job |
 |---|---|---|
-| `src/caregate/gate/` | Checks, hash, states, audit log | Section 6 |
-| `src/caregate/store/` | Dummy store and demo switches | Section 7 |
-| `src/caregate/matching/` | Item matching, household defaults | Section 6A |
-| `src/caregate/bot/` | Webhook, channel, buttons, voice | Sections 5, 7A |
-| `src/caregate/contracts.py` | Shared types. **Agree before changing** | Sections 5, 6 |
+| `src/caregate/gate/` | Niranjan | Checks, hash, states, audit log, MCP server |
+| `src/caregate/store/` | Niranjan (catalogue: Joel) | Dummy store and demo switches |
+| `src/caregate/bot/` | Arya | Webhook, channel, buttons, LLM loop, voice |
+| `src/caregate/matching/` | Arya | Item matching, household defaults |
+| `src/caregate/contracts.py` | Niranjan and Arya | Shared types. **Both agree before changing** |
+| Phones, accounts, manual tests | Joel | No code folder |
+| PPT, video, interviews, submission | Farzin | No code folder |
 
 ## Run
 

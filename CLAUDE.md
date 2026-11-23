@@ -68,6 +68,7 @@ A parent sends a WhatsApp voice note in Kannada or English. The bot turns it int
 | File | What |
 |---|---|
 | `docs/CareGate-PRD-v1.4.md` | Current spec |
+| `docs/TRD.md` | Tech stack, architecture, interfaces, roles and tasks. Read before coding |
 | `README.md` | Public summary for judges |
 | Local only, not in git: `docs/research/elder-research.md`, `elder-deep-research.md` | Problem evidence, voice, privacy law |
 | Local only: `docs/research/vendor-mcp-access.md` | Swiggy, Zepto, Zomato, ONDC access |
