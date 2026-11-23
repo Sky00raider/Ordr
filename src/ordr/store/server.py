@@ -97,6 +97,17 @@ def get_orders(count: int = 10, orderType: str | None = None, activeOnly: bool =
     return _run(STORE.get_orders, count, orderType, activeOnly)
 
 
+@mcp.custom_route("/demo/pay", methods=["POST"])
+async def demo_pay(request: Request) -> JSONResponse:
+    """Simulated UPI PIN. Body: {"paasId": ...}. Marks a pending, unexpired payment SUCCESS.
+    The order stays PENDING_PAYMENT until confirm_order."""
+    body = await request.json()
+    try:
+        return JSONResponse({"ok": True, **STORE.pay(str(body["paasId"]))})
+    except (StoreError, KeyError) as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, 400)
+
+
 @mcp.custom_route("/demo/switch", methods=["POST"])
 async def demo_switch(request: Request) -> JSONResponse:
     """Body: {"switch": name, ...}. Names: add_expensive_item, change_address, extra_fee
