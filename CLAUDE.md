@@ -1,8 +1,8 @@
-# CareGate (wHACKiest 2026, Track 1: Make MCP Matter)
+# Ordr (wHACKiest 2026, Track 1: Make MCP Matter)
 
-Full spec: `docs/CareGate-PRD-v1.4.md` (now v1.4.2). If this file and the PRD differ, follow the PRD and flag it.
+Full spec: `docs/Ordr-PRD-v1.4.md` (now v1.4.2). If this file and the PRD differ, follow the PRD and flag it.
 
-**Phase:** idea locked, building the demo. Stack: Python 3.11+, FastMCP, FastAPI, SQLite. Scaffold and contract tests exist in `src/caregate/`; features are stubs. Setup: `CONTRIBUTING.md`.
+**Phase:** idea locked, building the demo. Stack: Python 3.11+, FastMCP, FastAPI, SQLite. Scaffold and contract tests exist in `src/ordr/`; features are stubs. Setup: `CONTRIBUTING.md`.
 
 ## Team and style
 - Niranjan (Claude Code), Arya, Farzin, Joel (Antigravity). CSE AI&ML, 3rd year, MSRIT Bangalore.
@@ -17,7 +17,7 @@ Full spec: `docs/CareGate-PRD-v1.4.md` (now v1.4.2). If this file and the PRD di
 | 1 to 2 Dec | 24 h offline build |
 
 ## What we are building
-A parent sends a WhatsApp voice note in Kannada or English. The bot turns it into exact store items and reads the order back. The parent taps Confirm. The kid gets a card and taps Approve and pay, then pays by UPI (simulated). CareGate places an order only if it is exactly the one approved.
+A parent sends a WhatsApp voice note in Kannada or English. The bot turns it into exact store items and reads the order back. The parent taps Confirm. The kid gets a card and taps Approve and pay, then pays by UPI (simulated). Ordr places an order only if it is exactly the one approved.
 
 **Why it exists:** Swiggy Instamart's MCP `checkout` takes no items. It buys whatever is in the server-side cart, and there is no cancel tool.
 
@@ -37,7 +37,7 @@ A parent sends a WhatsApp voice note in Kannada or English. The bot turns it int
 
 ## Rules the code must keep
 1. The model never supplies a fact the gate checks. Cart, total, address and household come from the server.
-2. Button presses go straight from the webhook to CareGate, never through the model. Text or voice "yes" does not count.
+2. Button presses go straight from the webhook to Ordr, never through the model. Text or voice "yes" does not count.
 3. The read-back, cards, payment and status messages are written by code from store data. The model writes only clarifying questions to the parent.
 4. Assistant tools are only `search_products`, `prepare_order`, `get_order_status`, `abort_order`, `get_audit_log`. No `address_id`, total or approval as input.
 5. Item IDs must come from a store search for this household in the last 15 minutes. Never guess or silently swap.
@@ -61,13 +61,13 @@ A parent sends a WhatsApp voice note in Kannada or English. The bot turns it int
 - WhatsApp provider: 90 min total: Meta's test number, then Twilio sandbox, then Telegram (and say so). Max 3 buttons, 20 characters each. Without a template, the person must have messaged in the last 24 h, so both phones send "hi" first.
 - Kannada speech-to-text and text-to-speech not picked or tested.
 - Whether an MCP-filled cart shows in the Swiggy app. "Open in store" depends on it.
-- Final product name (CareGate, Anumati, Nambike, Nod) and team name.
+- Team name.
 - Ask 3 families. Ask CodeRIT whether pre-written code is allowed in the 24 h build.
 
 ## Docs
 | File | What |
 |---|---|
-| `docs/CareGate-PRD-v1.4.md` | Current spec |
+| `docs/Ordr-PRD-v1.4.md` | Current spec |
 | `docs/TRD.md` | Tech stack, architecture, interfaces, roles and tasks. Read before coding |
 | `README.md` | Public summary for judges |
 | Local only, not in git: `docs/research/elder-research.md`, `elder-deep-research.md` | Problem evidence, voice, privacy law |

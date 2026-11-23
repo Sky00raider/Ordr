@@ -1,4 +1,4 @@
-"""CareGate MCP server. Exactly five tools. No checkout, ever.
+"""Ordr MCP server. Exactly five tools. No checkout, ever.
 
 The household comes from the authenticated session, never from an argument.
 """
@@ -9,7 +9,7 @@ from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 from pydantic import BaseModel, ConfigDict, Field
 
-mcp = FastMCP("caregate")
+mcp = FastMCP("ordr")
 
 
 class OrderItemIn(BaseModel):
@@ -33,7 +33,7 @@ def search_products(query: str) -> dict:
 
 @mcp.tool
 def prepare_order(items: Annotated[list[OrderItemIn], Field(min_length=1)]) -> dict:
-    """Build the cart. CareGate sends the read-back to the parent."""
+    """Build the cart. Ordr sends the read-back to the parent."""
     return _todo()
 
 

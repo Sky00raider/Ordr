@@ -1,22 +1,22 @@
-# CareGate PRD v1.4.2
+# Ordr PRD v1.4.2
 
-**Working name:** CareGate (alternatives: Anumati, Nambike, Nod)
+**Name:** Ordr
 **Track:** wHACKiest 2026, Track 1 (Make MCP Matter)
 **Date:** 24 Nov 2026
 **Replaces:** v1.3. Changes are listed in sections 13 to 15.
 
 ## 1. What it is
 
-An MCP approval layer between an AI assistant and a grocery store. A parent sends a WhatsApp voice note in their own language. A family member the parent chose (the "kid" in this document) sees the exact order on WhatsApp, approves it with one tap and pays by UPI. CareGate places an order only if it is the order that was approved.
+An MCP approval layer between an AI assistant and a grocery store. A parent sends a WhatsApp voice note in their own language. A family member the parent chose (the "kid" in this document) sees the exact order on WhatsApp, approves it with one tap and pays by UPI. Ordr places an order only if it is the order that was approved.
 
 > "Voice ordering already exists. The missing piece is the second-person gate."
 
-**Why this has to exist:** in Swiggy Instamart's published MCP, `checkout` takes an address and a payment method, but no items. It buys whatever is in the server-side cart at that moment, and orders cannot be cancelled through the tools. So "the user said yes" and "what gets bought" can drift apart. CareGate binds the two.
+**Why this has to exist:** in Swiggy Instamart's published MCP, `checkout` takes an address and a payment method, but no items. It buys whatever is in the server-side cart at that moment, and orders cannot be cancelled through the tools. So "the user said yes" and "what gets bought" can drift apart. Ordr binds the two.
 
-**Why MCP:** the gate sits at the tool boundary. **The WhatsApp bot is the MCP client.** It calls CareGate's assistant tools: `search_products`, `prepare_order`, `get_order_status`, `abort_order`, `get_audit_log`. CareGate is in turn an MCP client of the store. Another MCP assistant could use the same five tools later and get the same rules, approvals and log. This build has one client, the WhatsApp bot. Confirmations would still happen on WhatsApp.
+**Why MCP:** the gate sits at the tool boundary. **The WhatsApp bot is the MCP client.** It calls Ordr's assistant tools: `search_products`, `prepare_order`, `get_order_status`, `abort_order`, `get_audit_log`. Ordr is in turn an MCP client of the store. Another MCP assistant could use the same five tools later and get the same rules, approvals and log. This build has one client, the WhatsApp bot. Confirmations would still happen on WhatsApp.
 
 **What it does not do**
-- It governs only purchases made through CareGate. An assistant connected directly to a store bypasses it.
+- It governs only purchases made through Ordr. An assistant connected directly to a store bypasses it.
 - It does not place the order on the "Open in store" path. There the kid checks out in the store app.
 - It does not stop phone-call scams such as "digital arrest".
 - No prescription medicines. Groceries and daily essentials only.
@@ -37,13 +37,13 @@ Not for slides: "45% struggle to spot scams" (Storyboard18, secondary, original 
 ## 3. Who it is for
 
 - **Parent:** lives apart from their children, uses only WhatsApp, does not use shopping apps, and already relies on a child for every order. Wants to order in their own words.
-- **Kid (approver):** today takes the list, searches every item, adds to cart, pays. With CareGate: reads one card, taps once, enters a UPI PIN. Chosen by the parent. Can be any trusted person.
+- **Kid (approver):** today takes the list, searches every item, adds to cart, pays. With Ordr: reads one card, taps once, enters a UPI PIN. Chosen by the parent. Can be any trusted person.
 
 ## 4. Demo store and vendors
 
 **Demo:** a dummy Swiggy Instamart. A local MCP server that uses the tool names and order flow from Swiggy's public documentation, with made-up products and no real orders.
 
-**Account:** the store account is the kid's, because the kid pays. The parent's address is saved on that account and fixed at setup. Every CareGate order goes to that address.
+**Account:** the store account is the kid's, because the kid pays. The parent's address is saved on that account and fixed at setup. Every Ordr order goes to that address.
 
 Label on the screen, slide and video:
 > "Demo store modelled on Swiggy Instamart's published MCP tools. Not affiliated with Swiggy. No real orders. Live access pending."
@@ -64,26 +64,26 @@ WhatsApp is the only channel for both people. There are no web pages for either.
 
 ```mermaid
 flowchart LR
-    P["Parent on WhatsApp"] -->|"voice or text"| W["CareGate webhook"]
+    P["Parent on WhatsApp"] -->|"voice or text"| W["Ordr webhook"]
     K["Kid on WhatsApp"] -->|"button presses"| W
     P -->|"button presses"| W
     W -->|"speech and text only"| B["WhatsApp bot: language model, MCP client"]
-    B -->|"five assistant tools"| G["CareGate MCP server"]
+    B -->|"five assistant tools"| G["Ordr MCP server"]
     W -->|"button presses, never via the model"| G
     G -->|"read-back, card, status"| W
-    G -->|"only CareGate can call checkout"| S["Dummy Instamart MCP"]
+    G -->|"only Ordr can call checkout"| S["Dummy Instamart MCP"]
     G --> L["Audit log"]
 ```
 
-1. Parent sends a voice note (or text) to the CareGate WhatsApp number.
+1. Parent sends a voice note (or text) to the Ordr WhatsApp number.
 2. Speech is transcribed. The bot, as MCP client, turns it into items using AI item matching (section 6A).
 3. If anything is unclear, the bot asks the parent one short question, by voice and text.
-4. CareGate builds the store cart, reads it back from the store, and sends the parent a read-back (voice and text): items, quantities, total, address.
+4. Ordr builds the store cart, reads it back from the store, and sends the parent a read-back (voice and text): items, quantities, total, address.
 5. Parent taps a WhatsApp **Confirm** button.
 6. Kid gets a WhatsApp card: items, total, "up to" amount, address, safe-phrase, duplicate warning if any. Buttons: **Approve and pay / Open in store / Reject**. The parent gets "sent to your kid" with a **Stop** button, which works until the kid approves.
-7. Kid taps Approve and pay. CareGate signs the approval, re-reads the live cart and runs every check in section 6 straight away.
-8. All checks pass: CareGate calls `checkout`. The order is `PENDING_PAYMENT`.
-9. CareGate reads the order back. Only if it matches does the kid get the UPI payment message (simulated in the demo), with **Pay / Don't pay**. The kid enters a UPI PIN.
+7. Kid taps Approve and pay. Ordr signs the approval, re-reads the live cart and runs every check in section 6 straight away.
+8. All checks pass: Ordr calls `checkout`. The order is `PENDING_PAYMENT`.
+9. Ordr reads the order back. Only if it matches does the kid get the UPI payment message (simulated in the demo), with **Pay / Don't pay**. The kid enters a UPI PIN.
 10. Payment confirmed, status read back, receipt stored, log updated. Both people get the receipt.
 
 Steps 7 to 9 take seconds, so the kid is interrupted once. **The UPI PIN is the last undo:** no PIN, no money.
@@ -94,42 +94,42 @@ Checking again at step 9 matters: a cart could still change in the instant betwe
 
 The cart belongs to the kid's account, and `update_cart` replaces the whole cart. So this rule applies on both paths:
 
-- Cart empty, or holding only what CareGate put there: fill it.
+- Cart empty, or holding only what Ordr put there: fill it.
 - Cart has anything else: do not touch it. Tell the parent "waiting for your kid" and ask the kid "Your cart has 4 items. Replace it?" with buttons **Replace / Not now**.
-- Only one open CareGate order per store account at a time. Before the parent taps Confirm, a new `prepare_order` replaces the draft and the old buttons stop working. After Confirm, `prepare_order` is refused until the order ends; the parent can tap Stop first.
+- Only one open Ordr order per store account at a time. Before the parent taps Confirm, a new `prepare_order` replaces the draft and the old buttons stop working. After Confirm, `prepare_order` is refused until the order ends; the parent can tap Stop first.
 
 ### "Open in store" path
 
 Fallback for a kid who wants to edit the order.
 
 1. Kid taps Open in store.
-2. CareGate reads the cart. If it already matches the list the parent confirmed, the kid gets "cart ready" at once. Go to step 5.
-3. If it does not match, CareGate warns that the confirmed list will replace the whole existing cart. Buttons: **Fill cart / Cancel**.
-4. CareGate fills the cart, reads it back from the store and compares it. If it matches, "cart ready". If not, the kid is told what differs and it is not called ready.
+2. Ordr reads the cart. If it already matches the list the parent confirmed, the kid gets "cart ready" at once. Go to step 5.
+3. If it does not match, Ordr warns that the confirmed list will replace the whole existing cart. Buttons: **Fill cart / Cancel**.
+4. Ordr fills the cart, reads it back from the store and compares it. If it matches, "cart ready". If not, the kid is told what differs and it is not called ready.
 5. The kid edits and checks out in the store app.
 
-On this path the caps, price ceiling and checkout checks do not apply, because CareGate does not place the order. The log records `HANDED_OFF`, not a purchase.
+On this path the caps, price ceiling and checkout checks do not apply, because Ordr does not place the order. The log records `HANDED_OFF`, not a purchase.
 
 ## 6. Security design
 
 ### Rule 1: the assistant never supplies a fact the gate checks
 
-CareGate reads the cart and total from the store. It takes consent only from button presses by the registered parent and kid.
+Ordr reads the cart and total from the store. It takes consent only from button presses by the registered parent and kid.
 
 ### Rule 2: button presses never pass through the language model
 
-Parent Confirm and Stop, and kid Approve, Reject, Pay and Don't pay, are handled by CareGate's webhook directly. So are Replace, Fill cart and Cancel. The model cannot produce or interpret a confirmation. A voice note or text saying "yes, confirm" does not count; the bot asks the person to tap the button.
+Parent Confirm and Stop, and kid Approve, Reject, Pay and Don't pay, are handled by Ordr's webhook directly. So are Replace, Fill cart and Cancel. The model cannot produce or interpret a confirmation. A voice note or text saying "yes, confirm" does not count; the bot asks the person to tap the button.
 
 ### Rule 3: the model does not write what people approve
 
-The read-back, the kid's card, payment messages and status messages are built by CareGate code from the store's data. The voice read-back is made from that same text. The model writes only clarifying questions to the parent. It cannot send buttons, and cannot message the kid.
+The read-back, the kid's card, payment messages and status messages are built by Ordr code from the store's data. The voice read-back is made from that same text. The model writes only clarifying questions to the parent. It cannot send buttons, and cannot message the kid.
 
 **Tools the assistant can call.** The assistant is the WhatsApp bot, acting as MCP client.
 
 | Tool | Input | Does |
 |---|---|---|
 | `search_products` | `query` | Read-only search. Marks the household's usual item if it is in the results |
-| `prepare_order` | `items: [{sku_id, spin_id, qty, heard_as}]` | Builds cart, returns `mandate_id`. CareGate sends the read-back |
+| `prepare_order` | `items: [{sku_id, spin_id, qty, heard_as}]` | Builds cart, returns `mandate_id`. Ordr sends the read-back |
 | `get_order_status` | `mandate_id` | Read-only |
 | `abort_order` | `mandate_id` | Stops an order. Aborting is always safe, so the assistant may do it |
 | `get_audit_log` | `limit` | Read-only, for the parent's household |
@@ -144,7 +144,7 @@ The read-back, the kid's card, payment messages and status messages are built by
 | Approve, Open in store, Reject | Kid | WhatsApp button, handled by the webhook |
 | Stop, Don't pay | Parent, kid | WhatsApp button, handled by the webhook |
 | Replace or fill the kid's cart | Kid | WhatsApp button, handled by the webhook |
-| Commit, `checkout`, `confirm_order` | CareGate only | Server, after approval and checks |
+| Commit, `checkout`, `confirm_order` | Ordr only | Server, after approval and checks |
 
 ### Identity
 
@@ -165,7 +165,7 @@ Every tool call and button press is checked on the server. A `mandate_id` from a
 
 The kid's chat does not reach the model. Typing "log" returns the audit log; anything else gets a fixed reply.
 
-**Repeated deliveries:** WhatsApp providers can deliver the same message twice. CareGate saves each message ID and ignores repeats, so one voice note cannot create two orders and one tap cannot count twice.
+**Repeated deliveries:** WhatsApp providers can deliver the same message twice. Ordr saves each message ID and ignores repeats, so one voice note cannot create two orders and one tap cannot count twice.
 
 ### What is bound
 
@@ -210,7 +210,7 @@ Both compare against `max_total`. Going over is refused, not sent for approval. 
 
 Same items and quantities to the same address within 120 minutes, counting handed-off carts as possible orders. The parent is told "you ordered this 2 minutes ago, order again?" and the button reads **Order again**. The kid's card shows the warning and the first button reads **Approve duplicate**. It warns rather than blocks, because ordering twice can be genuine. Single store for now.
 
-Swiggy's `checkout` can also reject a probable duplicate and ask for `confirmDuplicate`. CareGate never sets this on its own. If it happens, the order is refused and the kid is asked.
+Swiggy's `checkout` can also reject a probable duplicate and ask for `confirmDuplicate`. Ordr never sets this on its own. If it happens, the order is refused and the kid is asked.
 
 ### Final checks, in order, right after approval
 
@@ -236,9 +236,9 @@ v1.4.1 had a 60 s hold between approval and checkout. It is removed. It made the
 | During the checks (seconds) | Parent taps Stop | `ABORTED` if it lands before `COMMITTING` |
 | After `COMMITTING`, before the payment message | Parent taps Stop | Too late to prevent the order. No payment message. `NEEDS_REVIEW` |
 | After the payment message, before payment | Kid taps Don't pay or ignores it. Parent taps Stop and the kid is told "do not pay" | `UNPAID` if the store confirms the order failed or was cancelled, otherwise `NEEDS_REVIEW` |
-| After payment | Not possible through CareGate | Customer care |
+| After payment | Not possible through Ordr | Customer care |
 
-CareGate cannot block a UPI payment already started. Every state change is one atomic update, so Stop and Approve cannot both win.
+Ordr cannot block a UPI payment already started. Every state change is one atomic update, so Stop and Approve cannot both win.
 
 **Cost of this choice:** a kid who approves and does not pay leaves an unpaid order at the store. What Swiggy does with it is not known yet (section 12).
 
@@ -246,7 +246,7 @@ CareGate cannot block a UPI payment already started. Every state change is one a
 
 **Server restart.** `APPROVED` becomes `EXPIRED` and the kid is told. `COMMITTING` becomes `NEEDS_REVIEW`, never a retry.
 
-**`NEEDS_REVIEW`.** The store may have an unpaid order that no tool can cancel. CareGate sends no payment message, does not retry, tells both people, and gives the kid the order ID if known, with advice to check the store app or customer care. New orders on that account are blocked until the kid taps **I have checked it**.
+**`NEEDS_REVIEW`.** The store may have an unpaid order that no tool can cancel. Ordr sends no payment message, does not retry, tells both people, and gives the kid the order ID if known, with advice to check the store app or customer care. New orders on that account are blocked until the kid taps **I have checked it**.
 
 ### States
 
@@ -278,7 +278,7 @@ Ends: `REJECTED`, `EXPIRED`, `ABORTED`, `UNPAID`, `HANDED_OFF`, `BLOCKED(reason)
 
 Decision: keep it on the kid's card and payment message.
 - A UPI PIN does not protect against a fake payment link. Entering the PIN there pays the scammer.
-- People do not always check the sender, and the demo may run on a shared or test number that is not a verified CareGate number.
+- People do not always check the sender, and the demo may run on a shared or test number that is not a verified Ordr number.
 - It costs one line.
 
 Its limit: a forwarded card or screenshot leaks it. So it is one sign among three, with the sender and the payee name. It never appears in messages to or from the model.
@@ -289,12 +289,12 @@ Its limit: a forwarded card or screenshot leaks it. So it is one sign among thre
 |---|---|
 | Cart changed after the parent confirmed (another AI assistant, device or person on the same store account) | Live cart re-read and re-hashed at approval; mismatch refused |
 | Assistant claims the parent agreed | Consent only from a button press by the registered number, handled outside the model |
-| Assistant reports a false low total or false read-back | Total and message text come from the store through CareGate code |
+| Assistant reports a false low total or false read-back | Total and message text come from the store through Ordr code |
 | One household acts on another's order | Ownership and role checked on every tool call and press |
 | Same webhook delivered twice, or a double tap | Message IDs saved, repeats ignored; state changes are atomic |
 | Stop and Approve tapped together | Atomic state changes, only one wins; a late Stop means no payment message |
 | Approval reused, or an old button tapped | Single use, nonce, 60-minute expiry, current `mandate_id` only |
-| Fake message pretending to be CareGate | Messages only from the verified CareGate business number, plus the UPI PIN. The kid also checks the safe-phrase and payee name before entering the PIN. Not fully true in the demo: a sandbox number is not verified |
+| Fake message pretending to be Ordr | Messages only from the verified Ordr business number, plus the UPI PIN. The kid also checks the safe-phrase and payee name before entering the PIN. Not fully true in the demo: a sandbox number is not verified |
 | Forged webhook call | Provider signature checked on every call |
 | Misheard or wrongly matched item | Clarifying question, read-back, parent Confirm, kid sees items on the card |
 | Cart changes between check and checkout | Order re-read before payment; no payment if different |
@@ -312,11 +312,11 @@ Turns what the parent says into exact store products.
 - Mixed languages in one message: Kannada and English in the demo.
 
 **Where products come from**
-- Every `sku_id` and `spin_id` must come from a store search for this household in the last 15 minutes. CareGate keeps the results itself; `prepare_order` refuses any other.
+- Every `sku_id` and `spin_id` must come from a store search for this household in the last 15 minutes. Ordr keeps the results itself; `prepare_order` refuses any other.
 - The model never invents a product, price or quantity unit. Pack sizes come from the store's own description. Prices and totals come only from the store.
 
 **Household defaults**
-- CareGate stores each household's usual choices from past confirmed orders. Example: "haalu" means their usual milk, with brand and pack size.
+- Ordr stores each household's usual choices from past confirmed orders. Example: "haalu" means their usual milk, with brand and pack size.
 - A default is used only after the parent has confirmed it at least once, by tapping Confirm on an order that contained it.
 - A default must still appear in the current search and be in stock. It is always shown in the read-back.
 - The parent can clear the defaults with a button.
@@ -444,7 +444,7 @@ See `TRD.md`, section 1.
 
 1. **Order:** parent sends a Kannada voice note for milk and atta. Bot asks one clarifying question, reads back Rs 345, parent taps Confirm.
 2. **Approve:** kid gets the card, taps Approve and pay. Checks run, order placed, simulated UPI, receipt to both.
-3. **Tamper:** a new order is confirmed and the kid's card sits unread during a meeting. Another AI assistant connected to the same store account adds a Rs 1,999 item. The kid taps Approve on what the card shows. CareGate compares approved hash and live hash, refuses, zero order calls. Show the MCP calls on screen for about 10 seconds: `get_cart`, hash mismatch, no `checkout`.
+3. **Tamper:** a new order is confirmed and the kid's card sits unread during a meeting. Another AI assistant connected to the same store account adds a Rs 1,999 item. The kid taps Approve on what the card shows. Ordr compares approved hash and live hash, refuses, zero order calls. Show the MCP calls on screen for about 10 seconds: `get_cart`, hash mismatch, no `checkout`.
 4. **Stop:** parent taps Stop before the kid approves. The kid's Approve is refused. Rs 0 spent.
 5. **Quick:** "Open in store" path, then the duplicate warning.
 
@@ -456,8 +456,8 @@ Do not say our own assistant changed the cart. It has no cart tool. Keep the ful
 |---|---|
 | UPI Circle | Approves a payment amount. Does not see items, quantities or address |
 | Swiggy voice ordering | One person, one app, no second-person approval |
-| JioMart on WhatsApp | Voice or chat to cart for one person. CareGate adds second-person approval with one tap to place the order safely, and household-aware item matching |
-| food-cli (open source; voice-agent-driven, accessibility-focused, Swiggy and Zepto MCPs; learns preferences from order history) | Same user confirms their own order. CareGate adds second-person approval, with the approval bound to the cart. Household defaults there are for one user |
+| JioMart on WhatsApp | Voice or chat to cart for one person. Ordr adds second-person approval with one tap to place the order safely, and household-aware item matching |
+| food-cli (open source; voice-agent-driven, accessibility-focused, Swiggy and Zepto MCPs; learns preferences from order history) | Same user confirms their own order. Ordr adds second-person approval, with the approval bound to the cart. Household defaults there are for one user |
 | Cite-Before-Act, airlock, VoiceGate, Aegis and similar | Same approval idea, built for developers or one user. We borrow the pattern and credit it |
 | Notme, ClearGate, Kavach | Family approval of payments, not of grocery carts |
 | Google AP2 v0.2 (FIDO Alliance) | We found no dual-party approval flow in the parts we read |
@@ -466,7 +466,7 @@ Do not say our own assistant changed the cart. It has no cart tool. Keep the ful
 **Say:** "We found no...", "inspired by AP2 Cart Mandates", "tamper-evident", "the approval engine is a known pattern; the new part is applying it to a family and a real grocery flow."
 **Do not say:** "MCP vulnerability" (say "gap": Swiggy's docs tell agents to confirm, but nothing enforces that the cart stays the same), "Trusted Person Mechanism" (the RBI text we read says "trusted person"), first, only, proves, immutable, AP2-compliant, works in any app, real orders, live Swiggy, fully automatic, any matching accuracy we have not measured, that WhatsApp or voice ordering is new.
 
-**Privacy:** DPDP Rules (13 Nov 2025). An ordinary adult parent consents for themselves. Under Rule 11, only a legally appointed guardian can consent for a person with a disability who has one; that case is out of scope. Messages pass through WhatsApp and the chosen speech provider, and the parent is told this at opt-in. CareGate keeps household defaults, order records and the log. It does not keep voice recordings unless the parent agrees. The kid sees orders, not the parent's voice notes or chat.
+**Privacy:** DPDP Rules (13 Nov 2025). An ordinary adult parent consents for themselves. Under Rule 11, only a legally appointed guardian can consent for a person with a disability who has one; that case is out of scope. Messages pass through WhatsApp and the chosen speech provider, and the parent is told this at opt-in. Ordr keeps household defaults, order records and the log. It does not keep voice recordings unless the parent agrees. The kid sees orders, not the parent's voice notes or chat.
 
 ## 11. Changes from v1.2
 
@@ -486,7 +486,7 @@ Do not say our own assistant changed the cart. It has no cart tool. Keep the ful
 
 ## 12. Open
 
-- Final name
+- Team name
 - Ask 3 families, including whether the parent uses WhatsApp voice notes
 - Cap amounts are placeholders; adjust after the families answer
 - Nothing has been tested against a live vendor

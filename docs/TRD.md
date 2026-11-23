@@ -1,6 +1,6 @@
-# CareGate TRD (technical requirements)
+# Ordr TRD (technical requirements)
 
-**Version:** 1.0, 24 Nov 2026. **Product spec:** `CareGate-PRD-v1.4.md` (v1.4.2). The PRD says what and why. This says how and who. If they differ, follow the PRD and flag it.
+**Version:** 1.0, 24 Nov 2026. **Product spec:** `Ordr-PRD-v1.4.md` (v1.4.2). The PRD says what and why. This says how and who. If they differ, follow the PRD and flag it.
 
 ## 1. Roles
 
@@ -109,7 +109,7 @@ flowchart LR
 | store (Niranjan) | Catalogue, carts | Anything real |
 
 - Only 8003 is public. `/internal` and `/mcp` live on 8002, bound to `127.0.0.1`. **Never tunnel 8002.**
-- The webhook calls the gate with headers `x-caregate-internal: <INTERNAL_TOKEN>` and `x-caregate-number: <verified sender>`. Both are set by code. The model never sees or sets them. The gate compares the token in constant time, then maps the number to household and role itself.
+- The webhook calls the gate with headers `x-ordr-internal: <INTERNAL_TOKEN>` and `x-ordr-number: <verified sender>`. Both are set by code. The model never sees or sets them. The gate compares the token in constant time, then maps the number to household and role itself.
 - The MCP endpoint accepts only the parent's number.
 - The gate mounts MCP and `/internal` in one FastAPI app. FastMCP's lifespan must be passed to FastAPI.
 
@@ -262,4 +262,4 @@ Tests never call paid APIs.
 | Meta test number: do buttons and voice notes work for us? | Joel, Arya |
 | Does Sarvam's Opus output play as a WhatsApp voice message, or does it need converting? | Arya |
 | Is Sarvam good enough on our families' voice notes? | Arya, Farzin |
-| Final name and team name | All |
+| Team name | All |

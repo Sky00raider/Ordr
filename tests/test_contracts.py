@@ -5,12 +5,12 @@ from fastapi.testclient import TestClient
 from fastmcp import Client
 from pydantic import ValidationError
 
-from caregate.bot.app import app
-from caregate.config import Policy, load_policy
-from caregate.contracts import ACTION_ROLES, DUPLICATE_LABELS, LABELS, TRANSITIONS, Action, State
-from caregate.gate.server import OrderItemIn
-from caregate.gate.server import mcp as gate
-from caregate.store.server import mcp as store
+from ordr.bot.app import app
+from ordr.config import Policy, load_policy
+from ordr.contracts import ACTION_ROLES, DUPLICATE_LABELS, LABELS, TRANSITIONS, Action, State
+from ordr.gate.server import OrderItemIn
+from ordr.gate.server import mcp as gate
+from ordr.store.server import mcp as store
 
 ASSISTANT_TOOLS = {
     "search_products": {"query"},

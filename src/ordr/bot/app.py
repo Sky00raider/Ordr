@@ -11,7 +11,7 @@ Order of work for every request, no exceptions:
 
 from fastapi import FastAPI, HTTPException
 
-app = FastAPI(title="CareGate webhook")
+app = FastAPI(title="Ordr webhook")
 
 
 @app.get("/health")
