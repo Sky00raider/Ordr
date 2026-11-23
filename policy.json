@@ -1,0 +1,11 @@
+{
+  "auto_approve": false,
+  "per_order_cap_paise": 150000,
+  "monthly_cap_paise": 600000,
+  "surge_ceiling_paise": 3000,
+  "duplicate_window_minutes": 120,
+  "mandate_ttl_minutes": 60,
+  "search_result_ttl_minutes": 15,
+  "backup_approver_after_minutes": null,
+  "allowed_payment": ["UPI"]
+}

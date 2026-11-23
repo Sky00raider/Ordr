@@ -2,7 +2,7 @@
 
 Full spec: `docs/CareGate-PRD-v1.4.md` (now v1.4.2). If this file and the PRD differ, follow the PRD and flag it.
 
-**Phase:** idea locked, building the demo. No code yet. Language and stack not chosen.
+**Phase:** idea locked, building the demo. Stack: Python 3.11+, FastMCP, FastAPI, SQLite. Scaffold and contract tests exist in `src/caregate/`; features are stubs. Setup: `CONTRIBUTING.md`.
 
 ## Team and style
 - Niranjan (Claude Code), Arya, Farzin, Joel (Antigravity). CSE AI&ML, 3rd year, MSRIT Bangalore.

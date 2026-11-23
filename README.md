@@ -4,7 +4,7 @@
 
 Built for wHACKiest 2026, Track 1: Make MCP Matter.
 
-> **Status:** the design is done and the prototype is being built. There is no runnable code yet.
+> **Status:** design done, prototype being built. The repo has the MCP server skeletons, shared contracts and contract tests. The tools are stubs for now.
 
 ## The problem
 In Swiggy Instamart's published MCP, `checkout` takes an address and a payment method, but no items. It buys whatever is in the server-side cart at that moment, and no cancel tool is listed. What the user agreed to and what gets bought can drift apart.
@@ -50,6 +50,7 @@ Demo store modelled on Swiggy Instamart's published MCP tools. Not affiliated wi
 
 ## Docs
 - [Product spec](docs/CareGate-PRD-v1.4.md)
+- [Setup and contributing](CONTRIBUTING.md)
 
 ## Credits
 The approval pattern is known. We were inspired by Cite-Before-Act, airlock, VoiceGate and AP2 Cart Mandates.
