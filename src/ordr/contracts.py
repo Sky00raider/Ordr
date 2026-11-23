@@ -10,6 +10,9 @@ from typing import Protocol
 
 
 class State(StrEnum):
+    # prepare_order waits here while the kid decides whether to replace their cart.
+    # Open state. Nothing is written to the kid's cart until they tap Replace.
+    WAITING_FOR_CART = "WAITING_FOR_CART"
     PREPARED = "PREPARED"
     PARENT_CONFIRMED = "PARENT_CONFIRMED"
     HANDOFF_WARNED = "HANDOFF_WARNED"
@@ -29,6 +32,7 @@ class State(StrEnum):
 
 # Anything not listed is refused. Each move is one atomic database update.
 TRANSITIONS: dict[State, frozenset[State]] = {
+    State.WAITING_FOR_CART: frozenset({State.PREPARED, State.ABORTED, State.EXPIRED}),
     State.PREPARED: frozenset({State.PARENT_CONFIRMED, State.ABORTED, State.EXPIRED}),
     State.PARENT_CONFIRMED: frozenset(
         {
