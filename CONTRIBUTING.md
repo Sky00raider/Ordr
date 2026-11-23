@@ -5,8 +5,8 @@ Read `CLAUDE.md` first. Using Antigravity or another AI tool? Tell it to read `C
 ## Setup (Windows, Python 3.11 or newer)
 
 ```
-git clone https://github.com/Sky00raider/ordr.git
-cd ordr
+git clone https://github.com/Sky00raider/Ordr.git
+cd Ordr
 python -m venv .venv
 .venv\Scripts\activate
 pip install -e ".[dev]"
