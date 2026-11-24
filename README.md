@@ -58,6 +58,7 @@ flowchart LR
 | Simulated UPI, receipts, review after an unclear result | Built |
 | Messages in English and Kannada | Built. Kannada wording not yet checked by a speaker |
 | Chat bot (WhatsApp, with Telegram as backup) and AI item matching | Being built |
+| WhatsApp through Vonage's sandbox, as a second WhatsApp provider | Built and tested with mocked HTTP. Not run live with the full flow |
 | Kannada voice notes, household defaults, Open in store | Next |
 
 ## How it stays safe
