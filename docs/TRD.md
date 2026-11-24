@@ -191,24 +191,46 @@ Errors are short codes: `item_not_from_search`, `order_already_open`, `over_cap`
 | Call | Body | Returns |
 |---|---|---|
 | `POST /internal/action` | `{message_id, action, mandate_id}` | `{ok, code}`. Repeats return the first result's code without acting again |
-| `GET /internal/outbox` | none | `[{id, number, kind, text, speak, lang, buttons}]` |
+| `GET /internal/outbox` | none | `[{id, number, kind, text, speak, lang, buttons}]`, unsent rows in id order, at most 50. `buttons` is `[{action, mandate_id, label}]`, 3 at most, labels 20 characters at most |
 | `POST /internal/outbox/ack` | `{ids}` | `{ok}` |
-| `GET /internal/log` | none | Plain text log for the caller's household |
+| `GET /internal/log` | none | Plain text log for the caller's household, no numbers. Works for the parent or the kid |
 
-Text in the outbox is final. The webhook sends it as is, and speaks it if `speak` is true. A message may be sent twice if the webhook dies before the ack. That is safe, since buttons are single use. The webhook polls every 0.5 s.
+Every `/internal` call needs `x-ordr-internal`, or the answer is 403 before anything else is read. `POST /internal/action` and `GET /internal/log` take the person from `x-ordr-number`. A number in the body is refused (422). Bodies are strict: extra fields are refused.
+
+Text in the outbox is final. The webhook sends it as is, and speaks it if `speak` is true (parent messages). A message may be sent twice if the webhook dies before the ack. That is safe, since buttons are single use. The webhook polls every 0.5 s.
+
+**Stale rows are never sent.** A `readback` row needs its mandate in `PREPARED`, `kid_card` in `PARENT_CONFIRMED`, `replace_cart` in `WAITING_FOR_CART`, `payment` in `PLACED_PENDING_PAYMENT`, and none of them may have `stop_requested_at`. Any other row is marked sent and an `outbox_dropped` audit row is written. A row that cannot be rendered is closed the same way (`why: unrenderable`). So after the parent taps Confirm, the read-back is not sent again.
 
 ### Message templates
-Written in code, in Kannada and English: `readback`, `kid_card`, `sent_to_kid`, `replace_cart`, `blocked`, `payment`, `receipt`, `stopped`, `cart_ready`, `needs_review`, `fixed_reply`. Product names stay as the store gives them. A Kannada speaker on the team checks the wording.
+Written in `gate/messages.py`, in Kannada and English, from the outbox payload only. The parent's language is `PARENT_LANG` (`kn` or `en`, default `kn`), the kid's is English. The safe-phrase is added to kid messages when the text is rendered, never stored in the payload.
+
+| Kind | To | Notes |
+|---|---|---|
+| `readback` | parent | Confirm and Stop. "Order again" if duplicate |
+| `waiting_for_kid` | parent | Stop |
+| `replace_cart` | kid | Replace, Not now |
+| `order_failed` | both | `code`: `not_available`, `over_cap`, `store_error`, `internal`, `not_found`, `not_now` |
+| `kid_card` | kid | Approve and pay (or Approve duplicate), Reject |
+| `sent_to_kid` | parent | Stop |
+| `rejected` | parent | No buttons |
+| `expired`, `unpaid` | both | No buttons |
+| `stopped` | both | `do_not_pay` for a kid whose order was already placed |
+| `blocked` | both | `reason`: `not_approved`, `bad_signature`, `cart_changed`, `over_ceiling`, `out_of_stock`, `not_serviceable`, `over_cap`, `payment_not_allowed`, `store_error`, `internal` |
+| `payment` | kid | Pay, Don't pay. Says "simulated" |
+| `receipt` | both | Paid total, order ID |
+| `needs_review` | both | The kid gets "I have checked it" |
+
+A test fails if a kind, `blocked` reason or `order_failed` code in the code has no template. Long carts lose item lines first and say so. The total, "up to" amount, warning and address stay. Product names are shown as the store gives them, with whitespace collapsed. A Kannada speaker on the team checks the wording. The webhook's own fixed replies (for the kid's free text) are Arya's and are not outbox kinds.
 
 ## 7. Configuration
 All in `.env`. N7 and A1 add the missing names to `.env.example`.
 
 | Process | Variables |
 |---|---|
-| gate | `SERVER_KEY`, `INTERNAL_TOKEN`, `DB_PATH`, `POLICY_PATH`, `STORE_MCP_URL`, `PARENT_NUMBER`, `KID_NUMBER`, `SAFE_PHRASE` |
+| gate | `SERVER_KEY`, `INTERNAL_TOKEN`, `DB_PATH`, `POLICY_PATH`, `STORE_MCP_URL`, `PARENT_NUMBER`, `KID_NUMBER`, `SAFE_PHRASE`, `PARENT_LANG` |
 | webhook | `INTERNAL_TOKEN`, `GATE_URL`, `CHANNEL`, `META_TOKEN`, `META_APP_SECRET`, `META_PHONE_ID`, `META_VERIFY_TOKEN`, or the Twilio or Telegram equivalents, `ANTHROPIC_API_KEY`, `LLM_MODEL`, `SARVAM_API_KEY` |
 
-- A process refuses to start if a key it needs is empty. No default secrets.
+- A process refuses to start if a key it needs is empty. No default secrets. The gate also refuses numbers that are not digits only or are the same, and a changed number against an existing `ordr.db` (delete it to start again).
 - `SERVER_KEY` and `INTERNAL_TOKEN`: at least 32 random bytes.
 - Meta's temporary token lasts under 24 hours. Make a system user token.
 

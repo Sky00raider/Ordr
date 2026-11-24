@@ -32,11 +32,13 @@ Full task list: `docs/TRD.md`, section 1.
 
 ```
 python -m ordr.store.server      # store, port 8001
-python -m ordr.gate.server       # gate, port 8002
+python -m ordr.gate.app          # gate, port 8002: MCP at /mcp and the /internal API
 uvicorn ordr.bot.app:app --port 8003
 ```
 
 The store and gate listen on this machine only. Only port 8003 may be exposed (tunnel) for the webhook.
+
+Run the gate as one process. Never use `--workers` or start it twice: the per-account locks live in its memory. The first start makes the demo household from `PARENT_NUMBER`, `KID_NUMBER` and the store's saved address, so start the store first. If you change either number in `.env`, the gate refuses to start: stop it and delete `ordr.db` (and `ordr.db-wal`, `ordr.db-shm` if present).
 
 ## Rules
 

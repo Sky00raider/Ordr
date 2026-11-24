@@ -171,6 +171,20 @@ def parse_cart(data: dict) -> Cart:
     )
 
 
+def parse_addresses(data: dict) -> list[tuple[str, str]]:
+    """(address id, address text) in the order the store gives them. Text is kept exactly."""
+    out: list[tuple[str, str]] = []
+    for raw in _list(data.get("addresses"), "addresses"):
+        address = _dict(raw, "address")
+        out.append(
+            (
+                _text(address.get("id"), "address id"),
+                _text(address.get("addressLine"), "addressLine"),
+            )
+        )
+    return out
+
+
 def parse_products(data: dict) -> list[StoreProduct]:
     out: list[StoreProduct] = []
     for raw in _list(data.get("products"), "products"):
@@ -284,6 +298,9 @@ class StoreClient:
         if not isinstance(body, dict) or body.get("success") is not True:
             raise _fail(f"{tool} envelope")
         return _dict(body.get("data"), f"{tool} data")
+
+    async def get_addresses(self) -> list[tuple[str, str]]:
+        return parse_addresses(await self._call("get_addresses", {}))
 
     async def search_products(self, address_id: str, query: str) -> list[StoreProduct]:
         data = await self._call("search_products", {"addressId": address_id, "query": query})
