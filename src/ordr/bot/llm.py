@@ -149,12 +149,13 @@ class Llm:
         async with self.tools_for(number) as tools:
             definitions = await tools.list_tools()
             allowed = {tool["name"] for tool in definitions}
+            model_tools = [_strict(tool) for tool in definitions]
             for _ in range(MAX_ROUNDS):
                 response = await self.client.beta.messages.create(
                     model=self.model,
                     max_tokens=MAX_TOKENS,
                     system=SYSTEM,
-                    tools=definitions,
+                    tools=model_tools,
                     messages=messages,
                     output_config={"effort": "low"},
                     betas=[FALLBACK_BETA],
@@ -196,7 +197,11 @@ class Llm:
         failure: str | None = None
         for call in calls:
             if call.name in allowed:
-                arguments = call.input if isinstance(call.input, dict) else {}
+                arguments = _arguments(call.input)
+                if call.name == "prepare_order" and not isinstance(arguments.get("items"), list):
+                    # Wrong shape, never sent to the gate. The model may try again.
+                    results.append(_bad_items(call.id))
+                    continue
                 outcome = await tools.call(call.name, arguments)
             else:
                 outcome = ToolResult(False, code="not_found")
@@ -207,6 +212,51 @@ class Llm:
                     failure = outcome.code or "internal"
             results.append(_tool_result(call.id, outcome))
         return results, prepared, None if prepared else failure
+
+
+def _strict(tool: dict[str, Any]) -> dict[str, Any]:
+    """prepare_order with the API's strict mode, so its input has the exact shape. Strict mode
+    does not take number limits: they are left out here and the gate still checks them."""
+    if tool["name"] != "prepare_order":
+        return tool
+    return {**tool, "strict": True, "input_schema": _without_limits(tool["input_schema"])}
+
+
+def _without_limits(schema: Any) -> Any:
+    if isinstance(schema, dict):
+        return {
+            key: _without_limits(value)
+            for key, value in schema.items()
+            if key not in ("exclusiveMinimum", "exclusiveMaximum", "minimum", "maximum")
+        }
+    if isinstance(schema, list):
+        return [_without_limits(value) for value in schema]
+    return schema
+
+
+def _bad_items(tool_use_id: str) -> dict[str, Any]:
+    return {
+        "type": "tool_result",
+        "tool_use_id": tool_use_id,
+        "content": json.dumps({"error": "items must be a list of objects. Call it again."}),
+        "is_error": True,
+    }
+
+
+def _arguments(value: Any) -> dict[str, Any]:
+    """The model's tool input. Sometimes it writes the `items` list as JSON text: read it as the
+    list it is. Only the shape is repaired, the gate still checks every field."""
+    if not isinstance(value, dict):
+        return {}
+    items = value.get("items")
+    if isinstance(items, str):
+        try:
+            parsed = json.loads(items)
+        except (ValueError, RecursionError):
+            return value
+        if isinstance(parsed, list):
+            return {**value, "items": parsed}
+    return value
 
 
 def _tool_result(tool_use_id: str, outcome: ToolResult) -> dict[str, Any]:

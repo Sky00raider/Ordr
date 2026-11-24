@@ -43,7 +43,11 @@ async def test_the_request_uses_the_five_gate_tools_and_a_fixed_system_prompt():
     assert await llm.reply(PARENT, "milk") == "Which milk?"
     request = client.requests[0]
     assert request["model"] == "claude-opus-5-5"
-    assert request["tools"] == TOOL_DEFS
+    # Only prepare_order differs from the gate's own list: strict mode, same name and fields.
+    assert [{k: v for k, v in tool.items() if k != "strict"} for tool in request["tools"]] == (
+        TOOL_DEFS
+    )
+    assert [tool["name"] for tool in request["tools"] if tool.get("strict")] == ["prepare_order"]
     assert request["system"] == SYSTEM
     assert request["output_config"] == {"effort": "low"}
     assert request["fallbacks"] == "default" and request["betas"]

@@ -62,27 +62,27 @@ T: dict[str, dict[str, str]] = {
         "total_parent": "Total: {total}. It can go up to {max} if fees change.",
         "dup_parent": "Warning: this same order was placed recently. Tap {confirm} only if you "
         "want it again.",
-        "readback_close": "If it is right, tap {confirm}. Your kid will then be asked to "
+        "readback_close": "If it is right, tap {confirm}. Your family will then be asked to "
         "approve. To cancel, tap {stop}.",
-        "sent_head": "Sent to your kid for approval:",
+        "sent_head": "Sent to your family for approval:",
         "sent_close": "Nothing is ordered until they approve. To cancel before that, tap {stop}.",
-        "waiting": "Your kid's store cart has other things in it. I asked them if I can replace "
+        "waiting": "Your family's store cart has other things in it. I asked them if I can replace "
         "it. Nothing is ordered yet. To cancel, tap {stop}.",
-        "replace": "Your parent wants to order, but your store cart already has {items}. Replace "
+        "replace": "Your family wants to order, but your store cart already has {items}. Replace "
         "it with their order? {replace} empties your cart first. {not_now} keeps it as it is.",
-        "card_head": "Order from your parent. Please check it:",
+        "card_head": "Order from your family. Please check it:",
         "total_kid": "Total: {total}. If you approve, up to {max} can be charged, in case fees "
         "change.",
         "dup_kid": "Warning: this matches an order placed recently. Tap {approve} only if you "
         "want two.",
         "card_close": "{approve} places the order at the store. You then pay by UPI. {reject} "
         "cancels it.",
-        "rejected_parent": "Your kid rejected this order. Nothing was ordered.",
+        "rejected_parent": "Your family rejected this order. Nothing was ordered.",
         "rejected_kid": "You rejected this order. Nothing was ordered.",
         "stopped_parent": "Stopped. Nothing was ordered.",
-        "stopped_parent_dnp": "Stopped. Your kid was told not to pay.",
-        "stopped_kid": "Your parent stopped this order. Nothing was ordered.",
-        "stopped_kid_dnp": "Your parent stopped this order after it was placed at the store. "
+        "stopped_parent_dnp": "Stopped. Your family was told not to pay.",
+        "stopped_kid": "Your family stopped this order. Nothing was ordered.",
+        "stopped_kid_dnp": "Your family stopped this order after it was placed at the store. "
         "Do not pay.",
         "blocked_head": "Order blocked.",
         "blocked_now": "Store total now: {total}.",
@@ -102,7 +102,8 @@ T: dict[str, dict[str, str]] = {
         "unpaid": "The order was not paid, and the store has closed it. No payment was made "
         "(simulated UPI).",
         "review_parent": "I am not sure what happened with this order. It may have been placed at "
-        "the store. Your kid has been asked to check. Please do not order again until they have.",
+        "the store. Your family has been asked to check. Please do not order again until they "
+        "have.",
         "review_kid": "Ordr is not sure what happened with this order. It may have been placed "
         "at the store. Check the store app or ask customer care. No new orders until you tap "
         "{reviewed}.",
@@ -167,7 +168,7 @@ FAILED: dict[str, dict[str, tuple[str, str]]] = {
         "en": (
             "Some of these items are not available right now, so I did not order anything. "
             "Please ask again, or ask for something else.",
-            "Your parent's order could not be prepared because an item is not available. "
+            "Your family's order could not be prepared because an item is not available. "
             "Nothing was ordered.",
         ),
         "kn": (
@@ -178,8 +179,7 @@ FAILED: dict[str, dict[str, tuple[str, str]]] = {
     "over_cap": {
         "en": (
             "This order is over the spending limit set for your family, so I did not order it.",
-            "Your parent's order is over the spending limit set up for your family. "
-            "Nothing was ordered.",
+            "This order is over the spending limit set up for your family. Nothing was ordered.",
         ),
         "kn": (
             "ಈ ಆರ್ಡರ್ ನಿಮ್ಮ ಕುಟುಂಬಕ್ಕೆ ಹಾಕಿರುವ ಖರ್ಚಿನ ಮಿತಿಗಿಂತ ಹೆಚ್ಚಾಗಿದೆ, ಆದ್ದರಿಂದ ಆರ್ಡರ್ ಮಾಡಿಲ್ಲ.",
@@ -190,7 +190,7 @@ FAILED: dict[str, dict[str, tuple[str, str]]] = {
         "en": (
             "The store did not answer properly, so nothing was ordered. Please try again in a "
             "few minutes.",
-            "The store did not answer properly while preparing your parent's order. "
+            "The store did not answer properly while preparing your family's order. "
             "Nothing was ordered.",
         ),
         "kn": (
@@ -201,7 +201,7 @@ FAILED: dict[str, dict[str, tuple[str, str]]] = {
     "internal": {
         "en": (
             "Something went wrong on our side. Nothing was ordered. Please try again.",
-            "Something went wrong on our side while preparing your parent's order. "
+            "Something went wrong on our side while preparing your family's order. "
             "Nothing was ordered.",
         ),
         "kn": (
@@ -213,7 +213,7 @@ FAILED: dict[str, dict[str, tuple[str, str]]] = {
         "en": (
             "This order has too many items to show in one message, so I did not order it. "
             "Please order fewer items at a time.",
-            "Your parent's order has too many items to show on one card, so nothing was ordered.",
+            "Your family's order has too many items to show on one card, so nothing was ordered.",
         ),
         "kn": (
             "ಈ ಆರ್ಡರ್‌ನಲ್ಲಿ ತುಂಬಾ ವಸ್ತುಗಳಿವೆ, ಒಂದು ಸಂದೇಶದಲ್ಲಿ ತೋರಿಸಲು ಆಗುವುದಿಲ್ಲ, ಆದ್ದರಿಂದ ಆರ್ಡರ್ "
@@ -233,7 +233,7 @@ FAILED: dict[str, dict[str, tuple[str, str]]] = {
     },
     "not_now": {
         "en": (
-            "Your kid wants to keep their store cart as it is for now. Nothing was ordered.",
+            "Your family wants to keep their store cart as it is for now. Nothing was ordered.",
             "You kept your store cart as it is. Nothing was ordered.",
         ),
         "kn": (
