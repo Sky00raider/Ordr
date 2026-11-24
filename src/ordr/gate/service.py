@@ -21,7 +21,7 @@ import hmac
 import json
 import sqlite3
 from collections import Counter
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta, timezone
 from typing import Any
@@ -114,6 +114,8 @@ class Gate:
         self._token = token
         self.clock = clock
         self._locks: dict[str, asyncio.Lock] = {}
+        # Set by Actions to sweep_payments, so an ignored payment does not block a new order.
+        self.before_prepare: Callable[[], Awaitable[Any]] | None = None
 
     # ----- caller ----------------------------------------------------------------------
 
@@ -126,7 +128,7 @@ class Gate:
             raise AccessDenied
         return Caller(household_id=found[0]["id"])
 
-    def _lock(self, store_account: str) -> asyncio.Lock:
+    def account_lock(self, store_account: str) -> asyncio.Lock:
         return self._locks.setdefault(store_account, asyncio.Lock())
 
     def _household(self, conn: sqlite3.Connection, caller: Caller) -> sqlite3.Row:
@@ -177,7 +179,9 @@ class Gate:
     async def prepare_order(self, caller: Caller, items: Sequence[Mapping[str, Any]]) -> dict:
         request = _merge_request(items)
         household = self._household(self.db.conn(), caller)
-        async with self._lock(household["store_account"]):
+        if self.before_prepare is not None:
+            await self.before_prepare()
+        async with self.account_lock(household["store_account"]):
             gdb.expire_due(self.db, self.clock())
             mandate_id = self._reserve(household, request)
             try:
@@ -278,7 +282,7 @@ class Gate:
     # ----- fill ------------------------------------------------------------------------
 
     async def fill_cart(self, mandate_id: str) -> dict[str, str]:
-        """For the Replace button (N6). Fills the store cart for a WAITING_FOR_CART mandate.
+        """For the Replace button. Fills the store cart for a WAITING_FOR_CART mandate.
 
         On failure the mandate is ABORTED, both people are told, and GateError is raised.
         """
@@ -286,7 +290,7 @@ class Gate:
             row = gdb.get_mandate(conn, mandate_id)
         if row is None:
             raise GateError("not_found")
-        async with self._lock(row["store_account"]):
+        async with self.account_lock(row["store_account"]):
             return await self._fill(mandate_id, notify=True)
 
     async def _fill(self, mandate_id: str, *, notify: bool) -> dict[str, str]:
@@ -329,7 +333,7 @@ class Gate:
             raise GateError("over_cap", "per_order")
         digest = cart_hash(cart, store=self.store.store_id)
         with self.db.tx() as conn:
-            if self._spent_this_month(conn, row, now) + max_total > self.policy.monthly_cap_paise:
+            if self.spent_this_month(conn, row, now) + max_total > self.policy.monthly_cap_paise:
                 raise GateError("over_cap", "per_month")
             duplicate = self._is_duplicate(conn, row["store_account"], digest, now)
             cart_json = canonical_json(
@@ -395,7 +399,7 @@ class Gate:
             if not moved:
                 raise GateError("not_found", "stopped while filling")
 
-    def _spent_this_month(self, conn: sqlite3.Connection, row: sqlite3.Row, now: datetime) -> int:
+    def spent_this_month(self, conn: sqlite3.Connection, row: sqlite3.Row, now: datetime) -> int:
         """Ceilings of this account's orders created in the current IST calendar month."""
         local = now.astimezone(IST)
         start = local.replace(day=1, hour=0, minute=0, second=0, microsecond=0)

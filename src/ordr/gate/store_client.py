@@ -1,11 +1,12 @@
 """Async adapter over the store's MCP tools (TRD section 5: "Convert money once, here").
 
 Money leaves this file as whole paise. Anything missing, mistyped or odd raises StoreUnavailable,
-so the gate never works from a half-read store response. There is no `checkout` here yet: only
-the final-check code (N6) may add it.
+so the gate never works from a half-read store response. Only `actions.py` may call `checkout`.
+Paying is not here. The simulated UPI PIN is in `upi.py`.
 """
 
 import asyncio
+from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
@@ -17,10 +18,16 @@ from ordr.contracts import Cart, CartLine
 
 STORE_ID = "demo-instamart"
 ITEM_TOTAL_LABEL = "Item total"
+UPI = "UPI"
+PENDING_PAYMENT = "PENDING_PAYMENT"
+ORDERS_READ = 50
+PAYMENT_STATUSES = frozenset({"PENDING", "SUCCESS", "FAILED"})
 
 
 class StoreUnavailable(Exception):
     """The store failed, timed out, refused, or answered in a shape we do not trust."""
+
+    duplicate = False  # the store refused a probable duplicate (DUPLICATE_ORDER)
 
 
 @dataclass(frozen=True)
@@ -35,6 +42,45 @@ class StoreProduct:
     price_paise: int
     in_stock: bool
     max_qty: int
+
+
+@dataclass(frozen=True)
+class Placed:
+    """What checkout returned for a UPI order waiting for payment."""
+
+    order_id: str
+    paas_id: str
+    total_paise: int
+
+
+@dataclass(frozen=True)
+class StoreOrder:
+    """One order as get_orders shows it. It has no spinId (TRD section 5)."""
+
+    order_id: str
+    status: str
+    payment_status: str
+    payment_method: str
+    items: tuple[tuple[str, int], ...]  # (sku_id, qty), merged and sorted
+    address_id: str
+    address_text: str
+    total_paise: int
+
+
+@dataclass(frozen=True)
+class PaymentStatus:
+    status: str
+    order_status: str
+    total_paise: int
+
+    @property
+    def success(self) -> bool:
+        return self.status == "SUCCESS"
+
+    @property
+    def failed(self) -> bool:
+        """The store says both the payment and the order are dead. Nothing less is UNPAID."""
+        return self.status == "FAILED" and self.order_status in ("FAILED", "CANCELLED")
 
 
 # ----- parsing helpers ---------------------------------------------------------------------
@@ -148,6 +194,72 @@ def parse_products(data: dict) -> list[StoreProduct]:
     return out
 
 
+def _same(value: Any, expected: str, what: str) -> None:
+    if value != expected:
+        raise _fail(what)
+
+
+def parse_checkout(data: dict) -> Placed:
+    """Only a UPI order that is waiting for payment is accepted."""
+    _same(data.get("paymentMethod"), UPI, "payment method")
+    _same(data.get("status"), PENDING_PAYMENT, "checkout status")
+    return Placed(
+        order_id=_text(data.get("orderId"), "orderId"),
+        paas_id=_text(data.get("paasId"), "paasId"),
+        total_paise=paise(data.get("cartTotal"), "checkout total"),
+    )
+
+
+def parse_orders(data: dict) -> list[StoreOrder]:
+    out: list[StoreOrder] = []
+    for raw in _list(data.get("orders"), "orders"):
+        order = _dict(raw, "order")
+        address = _dict(order.get("deliveryAddress"), "delivery address")
+        items: Counter[str] = Counter()
+        for raw_item in _list(order.get("items"), "order items"):
+            line = _dict(raw_item, "order item")
+            items[_text(line.get("itemId"), "itemId")] += _whole(
+                line.get("quantity"), "order quantity", minimum=1
+            )
+        if _whole(order.get("itemCount"), "itemCount") != items.total():
+            raise _fail("itemCount")
+        out.append(
+            StoreOrder(
+                order_id=_text(order.get("orderId"), "orderId"),
+                status=_text(order.get("status"), "order status"),
+                payment_status=_text(order.get("paymentStatus"), "payment status"),
+                payment_method=_text(order.get("paymentMethod"), "payment method"),
+                items=tuple(sorted(items.items())),
+                address_id=_text(address.get("id"), "order address id"),
+                address_text=_text(address.get("addressLine"), "order address"),
+                total_paise=paise(order.get("totalAmount"), "order total"),
+            )
+        )
+    if len({order.order_id for order in out}) != len(out):
+        raise _fail("repeated order id")
+    return out
+
+
+def parse_payment_status(data: dict, order_id: str, paas_id: str) -> PaymentStatus:
+    _same(data.get("orderId"), order_id, "orderId")
+    _same(data.get("paasId"), paas_id, "paasId")
+    status = _text(data.get("status"), "payment status")
+    if status not in PAYMENT_STATUSES:
+        raise _fail("payment status")
+    for name, expected in (
+        ("terminal", status != "PENDING"),
+        ("isTerminalSuccess", status == "SUCCESS"),
+        ("isTerminalFailure", status == "FAILED"),
+    ):
+        if _flag(data.get(name), name) is not expected:
+            raise _fail(name)
+    return PaymentStatus(
+        status=status,
+        order_status=_text(data.get("orderStatus"), "order status"),
+        total_paise=paise(data.get("cartTotal"), "payment total"),
+    )
+
+
 # ----- the client --------------------------------------------------------------------------
 
 
@@ -165,7 +277,9 @@ class StoreClient:
             async with asyncio.timeout(self._timeout), Client(self._target) as client:
                 result = await client.call_tool(tool, args)
         except Exception as exc:  # tool error, network, timeout, protocol: all the same to us
-            raise StoreUnavailable(f"{tool} failed: {type(exc).__name__}") from exc
+            error = StoreUnavailable(f"{tool} failed: {type(exc).__name__}")
+            error.duplicate = "DUPLICATE_ORDER" in str(exc)
+            raise error from exc
         body = result.structured_content
         if not isinstance(body, dict) or body.get("success") is not True:
             raise _fail(f"{tool} envelope")
@@ -183,3 +297,27 @@ class StoreClient:
         body = [{"skuId": sku, "spinId": spin, "quantity": qty} for sku, spin, qty in items]
         data = await self._call("update_cart", {"selectedAddressId": address_id, "items": body})
         parse_cart(data)
+
+    async def checkout(self, address_id: str) -> Placed:
+        """Buys the server-side cart. UPI is always explicit and confirmDuplicate is never sent.
+
+        Never call this twice for one mandate. An error does not mean nothing was ordered.
+        """
+        args = {"addressId": address_id, "paymentMethod": UPI}
+        return parse_checkout(await self._call("checkout", args))
+
+    async def get_orders(self) -> list[StoreOrder]:
+        args = {"count": ORDERS_READ, "orderType": "INSTAMART"}
+        return parse_orders(await self._call("get_orders", args))
+
+    async def check_payment_status(self, order_id: str, paas_id: str) -> PaymentStatus:
+        data = await self._call("check_payment_status", {"paasId": paas_id, "orderId": order_id})
+        return parse_payment_status(data, order_id, paas_id)
+
+    async def confirm_order(self, order_id: str, paas_id: str) -> None:
+        """Completes a paid order. Anything but a clear success raises."""
+        data = await self._call("confirm_order", {"orderId": order_id, "paasId": paas_id})
+        _same(data.get("orderId"), order_id, "orderId")
+        _same(data.get("paasId"), paas_id, "paasId")
+        _same(data.get("result"), "success", "confirm result")
+        _same(data.get("orderStatus"), "CONFIRMED", "confirm status")
