@@ -5,6 +5,9 @@ Rules kept here:
   change of exactly one row counts. The audit row and outbox rows go in the same transaction.
 - A partial unique index allows one open mandate per store account. Open means any state with
   a way out, plus NEEDS_REVIEW until the kid taps "I have checked it" (`reviewed_at`).
+- A mandate starts in WAITING_FOR_CART with no cart. Cart, hash, quote, totals, duplicate flag
+  and expiry are set once, on the move to PREPARED. `approval_sig` is set only on the move from
+  PARENT_CONFIRMED to APPROVED. Triggers refuse any other change to them.
 - Transactions start with BEGIN IMMEDIATE and never stay open across a store call.
 - Money is whole paise. Times are UTC, fixed-width ISO text, so text order is time order.
 """
@@ -28,8 +31,20 @@ from ordr.contracts import TRANSITIONS, Role, State
 # until reviewed_at is set, so the index below adds it separately.
 OPEN_STATES: frozenset[State] = frozenset(TRANSITIONS)
 
-# Columns a transition may set along with the state. Everything else is fixed at creation.
-SETTABLE = frozenset({"approval_sig", "order_id", "paas_id", "reason", "is_duplicate"})
+# Columns any transition may set along with the state. The rest are fixed at creation or may be
+# set by one move only.
+SETTABLE = frozenset({"order_id", "paas_id", "reason"})
+
+# Needed on the move to PREPARED, and fixed from then on.
+CART_FIELDS = ("cart_json", "cart_hash", "quote_json", "total_paise", "max_total_paise")
+SEALED_FIELDS = (*CART_FIELDS, "is_duplicate", "expires_at")
+
+PREPARE_MOVE = (State.WAITING_FOR_CART, State.PREPARED)
+APPROVE_MOVE = (State.PARENT_CONFIRMED, State.APPROVED)
+SETTABLE_ON: dict[tuple[State, State], frozenset[str]] = {
+    PREPARE_MOVE: frozenset(SEALED_FIELDS),
+    APPROVE_MOVE: frozenset({"approval_sig"}),
+}
 
 GENESIS = "0" * 64
 
@@ -46,6 +61,16 @@ def _open_list() -> str:
     return ", ".join(f"'{s.value}'" for s in sorted(OPEN_STATES))
 
 
+def _guard_trigger(name: str, columns: Sequence[str], move: tuple[State, State]) -> str:
+    """Refuse a change to these columns unless the same update makes this move."""
+    changed = " OR ".join(f"NEW.{c} IS NOT OLD.{c}" for c in columns)
+    return f"""
+CREATE TRIGGER IF NOT EXISTS {name} BEFORE UPDATE ON mandates
+WHEN ({changed}) AND NOT (OLD.state = '{move[0].value}' AND NEW.state = '{move[1].value}')
+BEGIN SELECT RAISE(ABORT, '{name}: column is fixed'); END;
+"""
+
+
 SCHEMA = f"""
 CREATE TABLE IF NOT EXISTS households (
     id TEXT PRIMARY KEY,
@@ -60,11 +85,11 @@ CREATE TABLE IF NOT EXISTS mandates (
     household_id TEXT NOT NULL REFERENCES households(id),
     store_account TEXT NOT NULL,
     state TEXT NOT NULL,
-    cart_json TEXT NOT NULL,
-    cart_hash TEXT NOT NULL,
-    quote_json TEXT NOT NULL,
-    total_paise INTEGER NOT NULL,
-    max_total_paise INTEGER NOT NULL,
+    cart_json TEXT,
+    cart_hash TEXT,
+    quote_json TEXT,
+    total_paise INTEGER,
+    max_total_paise INTEGER,
     nonce TEXT NOT NULL UNIQUE,
     approval_sig TEXT,
     is_duplicate INTEGER NOT NULL DEFAULT 0,
@@ -78,6 +103,8 @@ CREATE TABLE IF NOT EXISTS mandates (
 CREATE UNIQUE INDEX IF NOT EXISTS one_open_mandate ON mandates(store_account)
     WHERE state IN ({_open_list()})
        OR (state = 'NEEDS_REVIEW' AND reviewed_at IS NULL);
+{_guard_trigger("seal_cart", SEALED_FIELDS, PREPARE_MOVE)}
+{_guard_trigger("seal_approval", ("approval_sig",), APPROVE_MOVE)}
 CREATE TABLE IF NOT EXISTS search_results (
     household_id TEXT NOT NULL REFERENCES households(id),
     sku_id TEXT NOT NULL,
@@ -284,19 +311,15 @@ def create_mandate(
     conn: sqlite3.Connection,
     *,
     household_id: str,
-    cart_json: str,
-    cart_hash: str,
-    quote_json: str,
-    total_paise: int,
-    max_total_paise: int,
     ttl: timedelta,
-    state: State = State.PREPARED,
-    is_duplicate: bool = False,
     now: datetime | None = None,
 ) -> str:
-    """Reserve the mandate row. Raises OrderAlreadyOpen if the account has an open one."""
-    if state not in (State.PREPARED, State.WAITING_FOR_CART):
-        raise ValueError(f"a mandate starts as PREPARED or WAITING_FOR_CART, not {state}")
+    """Reserve the mandate row in WAITING_FOR_CART, with no cart, hash, quote or totals.
+
+    `ttl` sets the first expiry. The move to PREPARED may set a new one. Raises
+    OrderAlreadyOpen if the account has an open mandate.
+    """
+    state = State.WAITING_FOR_CART
     household = conn.execute("SELECT * FROM households WHERE id = ?", (household_id,)).fetchone()
     if household is None:
         raise ValueError("unknown household")
@@ -304,21 +327,14 @@ def create_mandate(
     mandate_id = uuid.uuid4().hex
     try:
         conn.execute(
-            "INSERT INTO mandates (id, household_id, store_account, state, cart_json, cart_hash, "
-            "quote_json, total_paise, max_total_paise, nonce, is_duplicate, created_at, "
-            "expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO mandates (id, household_id, store_account, state, nonce, created_at, "
+            "expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
             (
                 mandate_id,
                 household_id,
                 household["store_account"],
                 state.value,
-                cart_json,
-                cart_hash,
-                quote_json,
-                total_paise,
-                max_total_paise,
                 secrets.token_hex(16),
-                int(is_duplicate),
                 iso(now),
                 iso(now + ttl),
             ),
@@ -333,6 +349,29 @@ def create_mandate(
 
 def get_mandate(conn: sqlite3.Connection, mandate_id: str) -> sqlite3.Row | None:
     return conn.execute("SELECT * FROM mandates WHERE id = ?", (mandate_id,)).fetchone()
+
+
+def _is_whole(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _prepare_fields(fields: Mapping[str, Any]) -> dict[str, Any]:
+    """Check and convert what the move to PREPARED saves. `expires_at` is an aware datetime."""
+    out = dict(fields)
+    if missing := [name for name in CART_FIELDS if out.get(name) in (None, "")]:
+        raise ValueError(f"PREPARED needs {missing}")
+    if not (_is_whole(out["total_paise"]) and _is_whole(out["max_total_paise"])):
+        raise ValueError("totals must be whole paise")
+    if not 0 < out["total_paise"] <= out["max_total_paise"]:
+        raise ValueError("total must be above zero and at or below the ceiling")
+    if "is_duplicate" in out:
+        out["is_duplicate"] = int(bool(out["is_duplicate"]))
+    if "expires_at" in out:
+        expires = out["expires_at"]
+        if not isinstance(expires, datetime) or expires.tzinfo is None:
+            raise ValueError("expires_at must be a datetime with a timezone")
+        out["expires_at"] = iso(expires)
+    return out
 
 
 def transition(
@@ -351,13 +390,18 @@ def transition(
 
     False means the mandate was no longer in `old` (someone else won). Nothing is written
     then: no audit row, no outbox rows. Call inside `Database.tx()`.
+
+    The move to PREPARED must set every column in CART_FIELDS. Each outbox payload gets this
+    `mandate_id`.
     """
     if new not in TRANSITIONS.get(old, frozenset()):
         raise IllegalTransition(f"{old} to {new}")
     assert conn.in_transaction, "state changes run inside a transaction"
     extra = dict(set_fields or {})
-    if unknown := set(extra) - SETTABLE:
-        raise ValueError(f"cannot set {sorted(unknown)} in a transition")
+    if unknown := set(extra) - SETTABLE - SETTABLE_ON.get((old, new), frozenset()):
+        raise ValueError(f"cannot set {sorted(unknown)} on {old} to {new}")
+    if (old, new) == PREPARE_MOVE:
+        extra = _prepare_fields(extra)
     assignments = ", ".join(["state = ?", *(f"{column} = ?" for column in extra)])
     cursor = conn.execute(
         f"UPDATE mandates SET {assignments} WHERE id = ? AND state = ?",  # noqa: S608
@@ -377,7 +421,8 @@ def transition(
         now,
     )
     for msg in outbox:
-        enqueue(conn, household_id, msg)
+        payload = {**msg.payload, "mandate_id": mandate_id}
+        enqueue(conn, household_id, OutboxMsg(msg.to_role, msg.kind, payload))
     return True
 
 
