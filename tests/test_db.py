@@ -39,6 +39,8 @@ def household(conn, n: int = 1, account: str | None = None) -> str:
     )
 
 
+REQUEST = '{"items":[{"heard_as":"milk","qty":1,"sku_id":"s","spin_id":"p"}]}'
+
 CART = {
     "cart_json": "[]",
     "cart_hash": "h",
@@ -49,7 +51,7 @@ CART = {
 
 
 def waiting(conn, household_id: str, ttl: timedelta = TTL) -> str:
-    return gdb.create_mandate(conn, household_id=household_id, ttl=ttl)
+    return gdb.create_mandate(conn, household_id=household_id, request_json=REQUEST, ttl=ttl)
 
 
 def mandate(conn, household_id: str, ttl: timedelta = TTL) -> str:
@@ -223,9 +225,9 @@ def test_account_is_blocked_by_every_open_state_and_by_unreviewed_needs_review(d
         try:
             with db.tx() as c:
                 c.execute(
-                    "INSERT INTO mandates (id, household_id, store_account, state, nonce, "
-                    "created_at, expires_at) VALUES ('second', ?, 'acct1', 'WAITING_FOR_CART', "
-                    "'n2', 't', 't')",
+                    "INSERT INTO mandates (id, household_id, store_account, state, request_json, "
+                    "nonce, created_at, expires_at) VALUES ('second', ?, 'acct1', "
+                    "'WAITING_FOR_CART', '{}', 'n2', 't', 't')",
                     (hid,),
                 )
                 c.execute("DELETE FROM mandates WHERE id = 'second'")
@@ -260,7 +262,9 @@ def test_a_mandate_always_starts_waiting_with_no_cart(db):
     assert row["state"] == State.WAITING_FOR_CART
     assert all(row[name] is None for name in (*CART, "approval_sig"))
     with pytest.raises(TypeError), db.tx() as conn:
-        gdb.create_mandate(conn, household_id="x", ttl=TTL, state=State.PREPARED)
+        gdb.create_mandate(
+            conn, household_id="x", request_json=REQUEST, ttl=TTL, state=State.PREPARED
+        )
 
 
 def test_preparing_sets_the_cart_flag_and_expiry(db):
@@ -474,3 +478,17 @@ def test_expiry_never_touches_committing_or_later(db):
         old = new
     assert gdb.expire_due(db, gdb.utc_now() + timedelta(hours=2)) == []
     assert state_of(db, mid) is State.COMMITTING
+
+
+def test_request_is_saved_at_creation_and_never_changes(db):
+    with db.tx() as conn:
+        mid = mandate(conn, household(conn))
+        assert gdb.get_mandate(conn, mid)["request_json"] == REQUEST
+    for state_change in (False, True):
+        with pytest.raises(sqlite3.DatabaseError, match="seal_request"), db.tx() as conn:
+            sql = "UPDATE mandates SET request_json = '{}'"
+            if state_change:
+                sql += ", state = 'ABORTED'"
+            conn.execute(sql + " WHERE id = ?", (mid,))
+    with pytest.raises(ValueError), db.tx() as conn:
+        gdb.create_mandate(conn, household_id=household(conn, 2), request_json="", ttl=TTL)

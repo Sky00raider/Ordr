@@ -5,8 +5,9 @@ Rules kept here:
   change of exactly one row counts. The audit row and outbox rows go in the same transaction.
 - A partial unique index allows one open mandate per store account. Open means any state with
   a way out, plus NEEDS_REVIEW until the kid taps "I have checked it" (`reviewed_at`).
-- A mandate starts in WAITING_FOR_CART with no cart. Cart, hash, quote, totals, duplicate flag
-  and expiry are set once, on the move to PREPARED. `approval_sig` is set only on the move from
+- A mandate starts in WAITING_FOR_CART with the items requested (`request_json`, fixed for life)
+  and no cart. Cart, hash, quote, totals, duplicate flag and expiry are set once, on the move to
+  PREPARED. `approval_sig` is set only on the move from
   PARENT_CONFIRMED to APPROVED. Triggers refuse any other change to them.
 - Transactions start with BEGIN IMMEDIATE and never stay open across a store call.
 - Money is whole paise. Times are UTC, fixed-width ISO text, so text order is time order.
@@ -85,6 +86,7 @@ CREATE TABLE IF NOT EXISTS mandates (
     household_id TEXT NOT NULL REFERENCES households(id),
     store_account TEXT NOT NULL,
     state TEXT NOT NULL,
+    request_json TEXT NOT NULL,
     cart_json TEXT,
     cart_hash TEXT,
     quote_json TEXT,
@@ -105,6 +107,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS one_open_mandate ON mandates(store_account)
        OR (state = 'NEEDS_REVIEW' AND reviewed_at IS NULL);
 {_guard_trigger("seal_cart", SEALED_FIELDS, PREPARE_MOVE)}
 {_guard_trigger("seal_approval", ("approval_sig",), APPROVE_MOVE)}
+CREATE TRIGGER IF NOT EXISTS seal_request BEFORE UPDATE ON mandates
+WHEN NEW.request_json IS NOT OLD.request_json
+BEGIN SELECT RAISE(ABORT, 'seal_request: column is fixed'); END;
 CREATE TABLE IF NOT EXISTS search_results (
     household_id TEXT NOT NULL REFERENCES households(id),
     sku_id TEXT NOT NULL,
@@ -311,15 +316,20 @@ def create_mandate(
     conn: sqlite3.Connection,
     *,
     household_id: str,
+    request_json: str,
     ttl: timedelta,
     now: datetime | None = None,
 ) -> str:
     """Reserve the mandate row in WAITING_FOR_CART, with no cart, hash, quote or totals.
 
+    `request_json` is the items the parent asked for. It is saved here and never changed.
     `ttl` sets the first expiry. The move to PREPARED may set a new one. Raises
     OrderAlreadyOpen if the account has an open mandate.
     """
     state = State.WAITING_FOR_CART
+    if not isinstance(request_json, str) or not request_json:
+        raise ValueError("request_json must be non-empty text")
+    json.loads(request_json)
     household = conn.execute("SELECT * FROM households WHERE id = ?", (household_id,)).fetchone()
     if household is None:
         raise ValueError("unknown household")
@@ -327,13 +337,14 @@ def create_mandate(
     mandate_id = uuid.uuid4().hex
     try:
         conn.execute(
-            "INSERT INTO mandates (id, household_id, store_account, state, nonce, created_at, "
-            "expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO mandates (id, household_id, store_account, state, request_json, nonce, "
+            "created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 mandate_id,
                 household_id,
                 household["store_account"],
                 state.value,
+                request_json,
                 secrets.token_hex(16),
                 iso(now),
                 iso(now + ttl),
