@@ -31,6 +31,7 @@ from ordr.contracts import Cart, Role, State
 from ordr.gate import db as gdb
 from ordr.gate.binding import canonical_json, cart_hash
 from ordr.gate.db import Database, OutboxMsg, append_audit, enqueue, transition
+from ordr.gate.messages import MessageTooLong, check_fits
 from ordr.gate.store_client import StoreClient, StoreProduct, StoreUnavailable
 
 IST = timezone(timedelta(hours=5, minutes=30))
@@ -331,6 +332,24 @@ class Gate:
         max_total = cart.total_paise + self.policy.surge_ceiling_paise
         if max_total > self.policy.per_order_cap_paise:
             raise GateError("over_cap", "per_order")
+        try:  # every card must show every item line and the address, in full
+            check_fits(
+                [
+                    {
+                        "name": ln.name,
+                        "pack": ln.pack,
+                        "qty": ln.qty,
+                        "unit_price_paise": ln.unit_price_paise,
+                    }
+                    for ln in cart.lines
+                ],
+                cart.fees_paise,
+                cart.total_paise,
+                max_total,
+                cart.address_text,
+            )
+        except (MessageTooLong, ValueError) as exc:
+            raise GateError("order_too_large", type(exc).__name__) from exc
         digest = cart_hash(cart, store=self.store.store_id)
         with self.db.tx() as conn:
             if self.spent_this_month(conn, row, now) + max_total > self.policy.monthly_cap_paise:

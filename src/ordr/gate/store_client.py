@@ -15,6 +15,7 @@ from typing import Any
 from fastmcp import Client
 
 from ordr.contracts import Cart, CartLine
+from ordr.gate.messages import MAX_ORDER_ID
 
 STORE_ID = "demo-instamart"
 ITEM_TOTAL_LABEL = "Item total"
@@ -217,8 +218,11 @@ def parse_checkout(data: dict) -> Placed:
     """Only a UPI order that is waiting for payment is accepted."""
     _same(data.get("paymentMethod"), UPI, "payment method")
     _same(data.get("status"), PENDING_PAYMENT, "checkout status")
+    order_id = _text(data.get("orderId"), "orderId")
+    if len(" ".join(order_id.split())) > MAX_ORDER_ID:
+        raise _fail("orderId is too long")  # the payment message must fit
     return Placed(
-        order_id=_text(data.get("orderId"), "orderId"),
+        order_id=order_id,
         paas_id=_text(data.get("paasId"), "paasId"),
         total_paise=paise(data.get("cartTotal"), "checkout total"),
     )

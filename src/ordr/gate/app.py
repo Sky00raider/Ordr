@@ -33,7 +33,7 @@ from ordr.contracts import Role, State
 from ordr.gate import db as gdb
 from ordr.gate.actions import Actions
 from ordr.gate.binding import WeakServerKey
-from ordr.gate.messages import LANGS, MissingTemplate, render
+from ordr.gate.messages import LANGS, MAX_SAFE_PHRASE, MissingTemplate, render
 from ordr.gate.server import build_actions, mcp, set_gate
 from ordr.gate.service import IST, Gate, WeakInternalToken
 from ordr.gate.store_client import StoreClient, StoreUnavailable
@@ -87,6 +87,8 @@ def check_settings(settings: Settings) -> None:
         raise StartupError("PARENT_NUMBER and KID_NUMBER must be digits only")
     if parent == kid:
         raise StartupError("PARENT_NUMBER and KID_NUMBER must be different")
+    if len(" ".join(settings.safe_phrase.split())) > MAX_SAFE_PHRASE:
+        raise StartupError(f"SAFE_PHRASE must be at most {MAX_SAFE_PHRASE} characters")
     if settings.parent_lang not in LANGS:
         raise StartupError("PARENT_LANG must be kn or en")
     if settings.server_key.strip() == settings.internal_token.strip():

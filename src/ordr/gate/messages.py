@@ -7,10 +7,12 @@ Kannada. Kannada wording needs a check by a Kannada speaker on the team.
 Rules kept here:
 - Money is whole paise, shown as rupees by integer arithmetic. A float is refused.
 - Product names are shown as the store gives them, except that whitespace is collapsed (a name
-  must not be able to start a new line) and a name over 100 characters is cut.
+  must not be able to start a new line). Only a receipt cuts a name over 100 characters.
 - The safe-phrase is added to kid messages here, at render time. It is never in the payload.
-- The body is at most 1024 characters. If a cart is too long, item lines are dropped first and
-  a "more items" line says so. The total, "up to" amount, warning and instructions stay.
+- The body is at most 1024 characters. A read-back, sent-to-kid, kid card or payment message
+  never hides or shortens an item line or the address: if it does not fit, MessageTooLong is
+  raised, and `check_fits` makes the gate refuse such a cart before it is prepared. Only a
+  receipt may drop item lines (with a "more items" line) to fit.
 - At most 3 buttons, at most 20 characters each. Duplicate carts get DUPLICATE_LABELS.
 - An unknown kind, reason or code raises MissingTemplate. There is no generic fallback.
 """
@@ -25,7 +27,9 @@ LANGS = ("kn", "en")
 BODY_LIMIT = 1024
 MAX_BUTTONS = 3
 MAX_LABEL = 20
-MAX_NAME = 100
+MAX_NAME = 100  # receipts only
+MAX_SAFE_PHRASE = 40  # characters, checked at start
+MAX_ORDER_ID = 40  # characters, checked when checkout answers
 
 
 class MissingTemplate(KeyError):
@@ -84,6 +88,7 @@ T: dict[str, dict[str, str]] = {
         "blocked_now": "Store total now: {total}.",
         "blocked_approved": "Approved up to: {max}.",
         "blocked_close": "Nothing was ordered. No money was taken.",
+        "blocked_close_money": "No money was taken.",
         "expired_parent": "This order timed out, so nothing was ordered. Please ask again if you "
         "still need it.",
         "expired_kid": "This order timed out or was reset, so it can no longer be approved. "
@@ -114,10 +119,10 @@ T: dict[str, dict[str, str]] = {
         "readback_head": "ದಯವಿಟ್ಟು ನಿಮ್ಮ ಆರ್ಡರ್ ಪರಿಶೀಲಿಸಿ:",
         "total_parent": "ಒಟ್ಟು: {total}. ಶುಲ್ಕ ಬದಲಾದರೆ {max} ವರೆಗೆ ಆಗಬಹುದು.",
         "dup_parent": "ಎಚ್ಚರಿಕೆ: ಇದೇ ಆರ್ಡರ್ ಇತ್ತೀಚೆಗೆ ಮಾಡಲಾಗಿದೆ. ಮತ್ತೆ ಬೇಕಿದ್ದರೆ ಮಾತ್ರ {confirm} ಒತ್ತಿ.",
-        "readback_close": "ಸರಿಯಿದ್ದರೆ {confirm} ಒತ್ತಿ. ನಂತರ ನಿಮ್ಮ ಮಗುವಿನ ಒಪ್ಪಿಗೆ ಕೇಳಲಾಗುತ್ತದೆ. ಬೇಡವಾದರೆ {stop} ಒತ್ತಿ.",
-        "sent_head": "ಒಪ್ಪಿಗೆಗಾಗಿ ನಿಮ್ಮ ಮಗುವಿಗೆ ಕಳುಹಿಸಲಾಗಿದೆ:",
+        "readback_close": "ಸರಿಯಿದ್ದರೆ {confirm} ಒತ್ತಿ. ನಂತರ ನಿಮ್ಮ ಮನೆಯವರ ಒಪ್ಪಿಗೆ ಕೇಳಲಾಗುತ್ತದೆ. ಬೇಡವಾದರೆ {stop} ಒತ್ತಿ.",
+        "sent_head": "ಒಪ್ಪಿಗೆಗಾಗಿ ನಿಮ್ಮ ಮನೆಯವರಿಗೆ ಕಳುಹಿಸಲಾಗಿದೆ:",
         "sent_close": "ಅವರು ಒಪ್ಪುವವರೆಗೆ ಏನೂ ಆರ್ಡರ್ ಆಗುವುದಿಲ್ಲ. ಅದಕ್ಕೂ ಮೊದಲು ರದ್ದುಮಾಡಲು {stop} ಒತ್ತಿ.",
-        "waiting": "ನಿಮ್ಮ ಮಗುವಿನ ಅಂಗಡಿ ಕಾರ್ಟ್‌ನಲ್ಲಿ ಬೇರೆ ವಸ್ತುಗಳಿವೆ. ಅದನ್ನು ಬದಲಾಯಿಸಲು ಅವರ ಒಪ್ಪಿಗೆ "
+        "waiting": "ನಿಮ್ಮ ಮನೆಯವರ ಅಂಗಡಿ ಕಾರ್ಟ್‌ನಲ್ಲಿ ಬೇರೆ ವಸ್ತುಗಳಿವೆ. ಅದನ್ನು ಬದಲಾಯಿಸಲು ಅವರ ಒಪ್ಪಿಗೆ "
         "ಕೇಳಿದ್ದೇನೆ. ಇನ್ನೂ ಏನೂ ಆರ್ಡರ್ ಆಗಿಲ್ಲ. ರದ್ದುಮಾಡಲು {stop} ಒತ್ತಿ.",
         "replace": "ನಿಮ್ಮ ಪೋಷಕರು ಆರ್ಡರ್ ಮಾಡಲು ಬಯಸಿದ್ದಾರೆ, ಆದರೆ ನಿಮ್ಮ ಅಂಗಡಿ ಕಾರ್ಟ್‌ನಲ್ಲಿ ಈಗಾಗಲೇ "
         "{items} ಇವೆ. ಅದನ್ನು ಅವರ ಆರ್ಡರ್‌ನಿಂದ ಬದಲಾಯಿಸಬೇಕೇ? {replace} ಒತ್ತಿದರೆ ನಿಮ್ಮ ಕಾರ್ಟ್ "
@@ -127,16 +132,17 @@ T: dict[str, dict[str, str]] = {
         "dup_kid": "ಎಚ್ಚರಿಕೆ: ಇದು ಇತ್ತೀಚೆಗೆ ಮಾಡಿದ ಆರ್ಡರ್‌ನಂತೆಯೇ ಇದೆ. ಎರಡು ಬೇಕಿದ್ದರೆ ಮಾತ್ರ {approve} ಒತ್ತಿ.",
         "card_close": "{approve} ಒತ್ತಿದರೆ ಅಂಗಡಿಯಲ್ಲಿ ಆರ್ಡರ್ ಆಗುತ್ತದೆ. ನಂತರ UPI ಮೂಲಕ ಪಾವತಿಸಿ. "
         "ರದ್ದುಮಾಡಲು {reject} ಒತ್ತಿ.",
-        "rejected_parent": "ನಿಮ್ಮ ಮಗು ಈ ಆರ್ಡರ್ ತಿರಸ್ಕರಿಸಿದ್ದಾರೆ. ಏನನ್ನೂ ಆರ್ಡರ್ ಮಾಡಿಲ್ಲ.",
+        "rejected_parent": "ನಿಮ್ಮ ಮನೆಯವರು ಈ ಆರ್ಡರ್ ತಿರಸ್ಕರಿಸಿದ್ದಾರೆ. ಏನನ್ನೂ ಆರ್ಡರ್ ಮಾಡಿಲ್ಲ.",
         "rejected_kid": "ನೀವು ಈ ಆರ್ಡರ್ ತಿರಸ್ಕರಿಸಿದ್ದೀರಿ. ಏನನ್ನೂ ಆರ್ಡರ್ ಮಾಡಿಲ್ಲ.",
         "stopped_parent": "ನಿಲ್ಲಿಸಲಾಗಿದೆ. ಏನನ್ನೂ ಆರ್ಡರ್ ಮಾಡಿಲ್ಲ.",
-        "stopped_parent_dnp": "ನಿಲ್ಲಿಸಲಾಗಿದೆ. ಪಾವತಿಸಬೇಡಿ ಎಂದು ನಿಮ್ಮ ಮಗುವಿಗೆ ಹೇಳಲಾಗಿದೆ.",
+        "stopped_parent_dnp": "ನಿಲ್ಲಿಸಲಾಗಿದೆ. ಪಾವತಿಸಬೇಡಿ ಎಂದು ನಿಮ್ಮ ಮನೆಯವರಿಗೆ ಹೇಳಲಾಗಿದೆ.",
         "stopped_kid": "ನಿಮ್ಮ ಪೋಷಕರು ಈ ಆರ್ಡರ್ ನಿಲ್ಲಿಸಿದ್ದಾರೆ. ಏನನ್ನೂ ಆರ್ಡರ್ ಮಾಡಿಲ್ಲ.",
         "stopped_kid_dnp": "ಅಂಗಡಿಯಲ್ಲಿ ಆರ್ಡರ್ ಆದ ನಂತರ ನಿಮ್ಮ ಪೋಷಕರು ಅದನ್ನು ನಿಲ್ಲಿಸಿದ್ದಾರೆ. ಪಾವತಿಸಬೇಡಿ.",
         "blocked_head": "ಆರ್ಡರ್ ತಡೆಹಿಡಿಯಲಾಗಿದೆ.",
         "blocked_now": "ಅಂಗಡಿಯಲ್ಲಿ ಈಗಿನ ಒಟ್ಟು: {total}.",
         "blocked_approved": "ಒಪ್ಪಿದ ಗರಿಷ್ಠ ಮೊತ್ತ: {max}.",
         "blocked_close": "ಏನನ್ನೂ ಆರ್ಡರ್ ಮಾಡಿಲ್ಲ. ಹಣ ತೆಗೆದುಕೊಂಡಿಲ್ಲ.",
+        "blocked_close_money": "ಹಣ ತೆಗೆದುಕೊಂಡಿಲ್ಲ.",
         "expired_parent": "ಈ ಆರ್ಡರ್‌ನ ಸಮಯ ಮುಗಿದಿದೆ, ಆದ್ದರಿಂದ ಏನನ್ನೂ ಆರ್ಡರ್ ಮಾಡಿಲ್ಲ. ಇನ್ನೂ ಬೇಕಿದ್ದರೆ ಮತ್ತೆ ಕೇಳಿ.",
         "expired_kid": "ಈ ಆರ್ಡರ್‌ನ ಸಮಯ ಮುಗಿದಿದೆ ಅಥವಾ ಮರುಹೊಂದಿಸಲಾಗಿದೆ, ಆದ್ದರಿಂದ ಇನ್ನು ಒಪ್ಪಲು ಸಾಧ್ಯವಿಲ್ಲ. "
         "ಏನನ್ನೂ ಆರ್ಡರ್ ಮಾಡಿಲ್ಲ.",
@@ -148,7 +154,7 @@ T: dict[str, dict[str, str]] = {
         "receipt_total": "ಪಾವತಿಸಿದ್ದು: {total} (ಅನುಕರಣೆ UPI).",
         "unpaid": "ಆರ್ಡರ್‌ಗೆ ಪಾವತಿ ಆಗಿಲ್ಲ, ಮತ್ತು ಅಂಗಡಿ ಅದನ್ನು ಮುಚ್ಚಿದೆ. ಯಾವುದೇ ಪಾವತಿ ಆಗಿಲ್ಲ (ಅನುಕರಣೆ UPI).",
         "review_parent": "ಈ ಆರ್ಡರ್‌ಗೆ ಏನಾಯಿತು ಎಂದು ನನಗೆ ಖಚಿತವಿಲ್ಲ. ಅದು ಅಂಗಡಿಯಲ್ಲಿ ಆಗಿರಬಹುದು. ಪರಿಶೀಲಿಸಲು "
-        "ನಿಮ್ಮ ಮಗುವಿಗೆ ಹೇಳಿದ್ದೇನೆ. ಅವರು ಪರಿಶೀಲಿಸುವವರೆಗೆ ಮತ್ತೆ ಆರ್ಡರ್ ಮಾಡಬೇಡಿ.",
+        "ನಿಮ್ಮ ಮನೆಯವರಿಗೆ ಹೇಳಿದ್ದೇನೆ. ಅವರು ಪರಿಶೀಲಿಸುವವರೆಗೆ ಮತ್ತೆ ಆರ್ಡರ್ ಮಾಡಬೇಡಿ.",
         "review_kid": "ಈ ಆರ್ಡರ್‌ಗೆ ಏನಾಯಿತು ಎಂದು Ordr ಗೆ ಖಚಿತವಿಲ್ಲ. ಅದು ಅಂಗಡಿಯಲ್ಲಿ ಆಗಿರಬಹುದು. ಅಂಗಡಿ "
         "ಆ್ಯಪ್ ನೋಡಿ ಅಥವಾ ಗ್ರಾಹಕ ಸೇವೆಯನ್ನು ಕೇಳಿ. {reviewed} ಒತ್ತುವವರೆಗೆ ಹೊಸ ಆರ್ಡರ್ ಇಲ್ಲ.",
         "review_no_id": "ಆರ್ಡರ್ ಐಡಿ ತಿಳಿದಿಲ್ಲ.",
@@ -203,6 +209,18 @@ FAILED: dict[str, dict[str, tuple[str, str]]] = {
             "ನಿಮ್ಮ ಪೋಷಕರ ಆರ್ಡರ್ ಸಿದ್ಧಪಡಿಸುವಾಗ ನಮ್ಮ ಕಡೆ ಏನೋ ತಪ್ಪಾಗಿದೆ. ಏನನ್ನೂ ಆರ್ಡರ್ ಮಾಡಿಲ್ಲ.",
         ),
     },
+    "order_too_large": {
+        "en": (
+            "This order has too many items to show in one message, so I did not order it. "
+            "Please order fewer items at a time.",
+            "Your parent's order has too many items to show on one card, so nothing was ordered.",
+        ),
+        "kn": (
+            "ಈ ಆರ್ಡರ್‌ನಲ್ಲಿ ತುಂಬಾ ವಸ್ತುಗಳಿವೆ, ಒಂದು ಸಂದೇಶದಲ್ಲಿ ತೋರಿಸಲು ಆಗುವುದಿಲ್ಲ, ಆದ್ದರಿಂದ ಆರ್ಡರ್ "
+            "ಮಾಡಿಲ್ಲ. ದಯವಿಟ್ಟು ಒಮ್ಮೆಗೆ ಕಡಿಮೆ ವಸ್ತುಗಳನ್ನು ಕೇಳಿ.",
+            "ನಿಮ್ಮ ಪೋಷಕರ ಆರ್ಡರ್‌ನಲ್ಲಿ ತುಂಬಾ ವಸ್ತುಗಳಿವೆ, ಒಂದು ಕಾರ್ಡ್‌ನಲ್ಲಿ ತೋರಿಸಲು ಆಗುವುದಿಲ್ಲ. ಏನನ್ನೂ ಆರ್ಡರ್ ಮಾಡಿಲ್ಲ.",
+        ),
+    },
     "not_found": {
         "en": (
             "This order was stopped or changed while I was preparing it. Nothing was ordered.",
@@ -219,7 +237,7 @@ FAILED: dict[str, dict[str, tuple[str, str]]] = {
             "You kept your store cart as it is. Nothing was ordered.",
         ),
         "kn": (
-            "ನಿಮ್ಮ ಮಗು ತಮ್ಮ ಅಂಗಡಿ ಕಾರ್ಟ್ ಈಗ ಹಾಗೆಯೇ ಇರಲಿ ಎಂದಿದ್ದಾರೆ. ಏನನ್ನೂ ಆರ್ಡರ್ ಮಾಡಿಲ್ಲ.",
+            "ನಿಮ್ಮ ಮನೆಯವರು ತಮ್ಮ ಅಂಗಡಿ ಕಾರ್ಟ್ ಈಗ ಹಾಗೆಯೇ ಇರಲಿ ಎಂದಿದ್ದಾರೆ. ಏನನ್ನೂ ಆರ್ಡರ್ ಮಾಡಿಲ್ಲ.",
             "ನೀವು ನಿಮ್ಮ ಅಂಗಡಿ ಕಾರ್ಟ್ ಹಾಗೆಯೇ ಇರಿಸಿದ್ದೀರಿ. ಏನನ್ನೂ ಆರ್ಡರ್ ಮಾಡಿಲ್ಲ.",
         ),
     },
@@ -236,8 +254,8 @@ BLOCKED: dict[str, dict[str, str]] = {
         "kn": "ಒಪ್ಪಿಗೆಯ ದಾಖಲೆ ಸರಿಯಾಗಿ ಹೊಂದಲಿಲ್ಲ.",
     },
     "cart_changed": {
-        "en": "The store cart is not the one that was approved. It changed after approval.",
-        "kn": "ಅಂಗಡಿ ಕಾರ್ಟ್ ಒಪ್ಪಿದ ಕಾರ್ಟ್ ಆಗಿಲ್ಲ. ಒಪ್ಪಿಗೆಯ ನಂತರ ಅದು ಬದಲಾಗಿದೆ.",
+        "en": "The store cart is not the one on the card, so nothing was ordered.",
+        "kn": "ಅಂಗಡಿ ಕಾರ್ಟ್ ಕಾರ್ಡ್‌ನಲ್ಲಿ ಇದ್ದದ್ದಲ್ಲ, ಆದ್ದರಿಂದ ಏನನ್ನೂ ಆರ್ಡರ್ ಮಾಡಿಲ್ಲ.",
     },
     "over_ceiling": {
         "en": "The price is now above the amount that was approved.",
@@ -268,6 +286,9 @@ BLOCKED: dict[str, dict[str, str]] = {
         "kn": "ನಮ್ಮ ಕಡೆ ಏನೋ ತಪ್ಪಾಗಿದೆ.",
     },
 }
+
+# Reason texts that already say "nothing was ordered", so the closing line must not repeat it.
+SAYS_NOTHING_ORDERED = frozenset({"cart_changed"})
 
 BOTH = frozenset({Role.PARENT, Role.KID})
 # Who each kind is written for. Rendering any other pair is refused.
@@ -327,19 +348,19 @@ def _clean(value: Any, what: str, limit: int | None = None) -> str:
     return text
 
 
-def _line(raw: Mapping[str, Any], lang: str) -> str:
+def _line(raw: Mapping[str, Any], lang: str, shorten: bool) -> str:
     qty = _whole(raw["qty"], "qty", minimum=1)
     unit = _whole(raw["unit_price_paise"], "unit price")
-    name = _clean(raw["name"], "name", MAX_NAME)
-    pack = _clean(raw["pack"], "pack", MAX_NAME)
+    name = _clean(raw["name"], "name", MAX_NAME if shorten else None)
+    pack = _clean(raw["pack"], "pack", MAX_NAME if shorten else None)
     return f"{qty} x {name}, {pack}: {money(qty * unit, lang)}"
 
 
-def _lines(payload: Mapping[str, Any], lang: str) -> list[str]:
+def _lines(payload: Mapping[str, Any], lang: str, shorten: bool) -> list[str]:
     lines = payload["lines"]
     if not isinstance(lines, Sequence) or isinstance(lines, str) or not lines:
         raise ValueError("lines must be a list")
-    return [_line(raw, lang) for raw in lines]
+    return [_line(raw, lang, shorten) for raw in lines]
 
 
 def label(action: Action, duplicate: bool = False) -> str:
@@ -348,13 +369,14 @@ def label(action: Action, duplicate: bool = False) -> str:
 
 @dataclass
 class _Draft:
-    """A message in parts, so a long cart can lose item lines and nothing else."""
+    """A message in parts. Only a receipt (`droppable`) may lose item lines to fit."""
 
     head: str
     items: list[str]
     mid: list[str]
     address: str | None
     end: list[str]
+    droppable: bool = False
 
 
 def _fees(payload: Mapping[str, Any], lang: str) -> list[str]:
@@ -376,6 +398,11 @@ def _assemble(draft: _Draft, lang: str, footer: str | None) -> str:
         sections = [first, second, draft.end, [footer] if footer else []]
         return "\n\n".join("\n".join(part) for part in sections if part)
 
+    if not draft.droppable:  # never hide an item line or shorten the address: refuse instead
+        text = build(len(draft.items), draft.address)
+        if len(text) > BODY_LIMIT:
+            raise MessageTooLong(draft.head[:30])
+        return text
     for shown in range(len(draft.items), -1, -1):
         text = build(shown, draft.address)
         if len(text) <= BODY_LIMIT:
@@ -388,14 +415,17 @@ def _assemble(draft: _Draft, lang: str, footer: str | None) -> str:
     raise MessageTooLong(draft.head[:30])
 
 
-def _card(payload: Mapping[str, Any], lang: str, head: str, total_line: str) -> _Draft:
+def _card(
+    payload: Mapping[str, Any], lang: str, head: str, total_line: str, droppable: bool = False
+) -> _Draft:
     """Lines, total, fees, address: the part every order message shares."""
     return _Draft(
         head=head,
-        items=_lines(payload, lang),
+        items=_lines(payload, lang, droppable),
         mid=[total_line, *_fees(payload, lang)],
         address=_clean(payload["address_text"], "address"),
         end=[],
+        droppable=droppable,
     )
 
 
@@ -451,7 +481,10 @@ def _payment(p: Mapping[str, Any], role: Role, lang: str, dup: bool) -> tuple[_D
     total = money(p["total_paise"], lang)
     ceiling = money(p["max_total_paise"], lang)
     draft = _card(p, lang, _t(lang, "pay_head"), _t(lang, "pay_total", total=total, max=ceiling))
-    draft.mid.insert(0, _t(lang, "order_id", order_id=_clean(p["order_id"], "order id")))
+    order_id = _clean(p["order_id"], "order id")
+    if len(order_id) > MAX_ORDER_ID:
+        raise ValueError("order id is too long")
+    draft.mid.insert(0, _t(lang, "order_id", order_id=order_id))
     draft.end.append(_t(lang, "pay_sim"))
     draft.end.append(_t(lang, "pay_close", pay=label(Action.PAY), dont=label(Action.DONT_PAY)))
     return draft, [Action.PAY, Action.DONT_PAY]
@@ -459,7 +492,7 @@ def _payment(p: Mapping[str, Any], role: Role, lang: str, dup: bool) -> tuple[_D
 
 def _receipt(p: Mapping[str, Any], role: Role, lang: str, dup: bool) -> tuple[_Draft, list]:
     total = _t(lang, "receipt_total", total=money(p["total_paise"], lang))
-    draft = _card(p, lang, _t(lang, "receipt_head"), total)
+    draft = _card(p, lang, _t(lang, "receipt_head"), total, droppable=True)
     draft.mid.insert(0, _t(lang, "order_id", order_id=_clean(p["order_id"], "order id")))
     return draft, []
 
@@ -517,7 +550,8 @@ def _blocked(p: Mapping[str, Any], role: Role, lang: str, dup: bool) -> tuple[_D
         lines.append(_t(lang, "blocked_now", total=money(p["total_paise"], lang)))
     if "max_total_paise" in p:
         lines.append(_t(lang, "blocked_approved", max=money(p["max_total_paise"], lang)))
-    draft = _plain(_t(lang, "blocked_head"), "\n".join(lines), _t(lang, "blocked_close"))
+    close = "blocked_close_money" if p["reason"] in SAYS_NOTHING_ORDERED else "blocked_close"
+    draft = _plain(_t(lang, "blocked_head"), "\n".join(lines), _t(lang, close))
     return draft, []
 
 
@@ -596,3 +630,39 @@ def render(
     if len(buttons) > MAX_BUTTONS or any(len(text) > MAX_LABEL for _, text in buttons):
         raise ValueError("too many buttons or a label is too long")
     return Rendered(_assemble(draft, lang, footer), buttons, speak=role is Role.PARENT)
+
+
+def check_fits(
+    lines: Sequence[Mapping[str, Any]],
+    fees_paise: Mapping[str, int],
+    total_paise: int,
+    max_total_paise: int,
+    address_text: str,
+) -> None:
+    """Raise MessageTooLong unless every message that shows this cart fits, worst case.
+
+    Worst case: duplicate warning on, longest safe-phrase and longest order ID allowed, and the
+    paid total at the ceiling. Read-back and sent-to-kid in both languages, kid card and payment
+    in English. Call before the cart is accepted, so no card is ever shortened.
+    """
+    card = {
+        "mandate_id": "0" * 32,
+        "lines": list(lines),
+        "fees_paise": dict(fees_paise),
+        "total_paise": total_paise,
+        "max_total_paise": max_total_paise,
+        "address_text": address_text,
+        "is_duplicate": True,
+    }
+    phrase = "w" * MAX_SAFE_PHRASE
+    for lang in LANGS:
+        render("readback", Role.PARENT, card, lang=lang)
+        render("sent_to_kid", Role.PARENT, {**card, "buttons": ["stop"]}, lang=lang)
+    kid = {**card, "buttons": ["approve", "reject"]}
+    render("kid_card", Role.KID, kid, lang="en", phrase=phrase)
+    placed = {k: v for k, v in card.items() if k != "fees_paise"} | {
+        "total_paise": max_total_paise,
+        "order_id": "9" * MAX_ORDER_ID,
+        "buttons": ["pay", "dont_pay"],
+    }
+    render("payment", Role.KID, placed, lang="en", phrase=phrase)

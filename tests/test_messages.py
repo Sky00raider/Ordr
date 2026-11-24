@@ -345,33 +345,137 @@ def test_product_names_are_shown_as_given_but_cannot_start_a_new_line():
     assert out.text.endswith(f"Safe phrase: {PHRASE}")
 
 
-def test_a_long_cart_loses_item_lines_but_never_the_total_or_the_warning():
-    lines = [
-        {
-            "name": f"Brightfield Premium Item Number {i}",
-            "pack": "500 g",
-            "qty": 2,
-            "unit_price_paise": 12345,
-        }
-        for i in range(60)
+def _cart(n: int, name: str = "Brightfield Premium Item Number") -> list[dict]:
+    return [
+        {"name": f"{name} {i}", "pack": "500 g", "qty": 2, "unit_price_paise": 12345}
+        for i in range(n)
     ]
-    for kind, role in (("readback", Role.PARENT), ("kid_card", Role.KID)):
-        out = show(kind, role, "en", lines=lines, is_duplicate=True)
-        assert len(out.text) <= BODY_LIMIT
-        assert "Total: Rs 345." in out.text
-        assert "up to Rs 375" in out.text
-        assert "Warning" in out.text
-        assert "more items not shown here" in out.text
-        assert f"Deliver to: {ADDRESS}" in out.text
-        assert out.buttons
-    kid = show("kid_card", Role.KID, "kn", lines=lines)
-    assert len(kid.text) <= BODY_LIMIT and "ರೂ 345" in kid.text and PHRASE in kid.text
 
 
-def test_a_long_address_is_shortened_as_a_last_resort_and_never_overflows():
-    out = show("kid_card", Role.KID, address_text="Flat 7, " + "Very Long Lane, " * 80)
+STRICT = (
+    ("readback", Role.PARENT),
+    ("sent_to_kid", Role.PARENT),
+    ("kid_card", Role.KID),
+    ("payment", Role.KID),
+)
+
+
+def test_a_cart_that_does_not_fit_is_refused_not_shortened():
+    for kind, role in STRICT:
+        for lang in LANGS:
+            with pytest.raises(MessageTooLong):
+                show(kind, role, lang, lines=_cart(60), is_duplicate=True)
+        with pytest.raises(MessageTooLong):
+            show(kind, role, address_text="Flat 7, " + "Very Long Lane, " * 80)
+
+
+@pytest.mark.parametrize(("kind", "role"), STRICT)
+def test_no_item_line_or_address_is_ever_hidden_or_shortened(kind, role):
+    shown = 0
+    for n in range(1, 40):
+        for name in ("Brightfield Premium Item Number", "ನಂದಿನಿ ಹಾಲು " * 12):
+            lines = _cart(n, name)
+            for lang in LANGS:
+                try:
+                    text = show(kind, role, lang, lines=lines, is_duplicate=True).text
+                except MessageTooLong:
+                    continue
+                shown += 1
+                assert len(text) <= BODY_LIMIT
+                for raw in lines:
+                    assert messages._line(raw, lang, shorten=False) in text
+                assert f"{messages._t(lang, 'deliver', address=ADDRESS)}" in text
+                assert "more items" not in text and "..." not in text
+                if kind == "kid_card":
+                    assert "Approve duplicate" in text
+    assert shown > 0
+
+
+def test_a_receipt_may_still_drop_item_lines_but_keeps_the_total_and_address():
+    out = show("receipt", Role.PARENT, "en", lines=_cart(60))
     assert len(out.text) <= BODY_LIMIT
-    assert "Total: Rs 345." in out.text
+    assert "more items not shown here" in out.text
+    assert "Paid: Rs 345 (simulated UPI)." in out.text
+    assert f"Deliver to: {ADDRESS}" in out.text
+    kn = show("receipt", Role.PARENT, "kn", lines=_cart(60))
+    assert len(kn.text) <= BODY_LIMIT and "ರೂ 345" in kn.text
+
+
+def test_a_very_long_name_is_never_cut_on_a_card():
+    long_name = "Extra Special Premium Whole Wheat Flour " * 4  # over 100 characters
+    out = show("kid_card", Role.KID, lines=[{**LINES[0], "name": long_name}])
+    assert " ".join(long_name.split()) in out.text
+    assert "..." not in out.text
+
+
+def _fits(lines=None, fees=None, address=ADDRESS):
+    messages.check_fits(lines or LINES, fees or {"Delivery fee": 2000}, 34500, 37500, address)
+
+
+def test_check_fits_passes_a_normal_cart_and_refuses_one_line_too_many(monkeypatch):
+    _fits()
+    lines = _cart(1)
+    # Find the smallest limit that still fits, then show one more line does not.
+    limit = BODY_LIMIT
+    while limit > 100:
+        monkeypatch.setattr(messages, "BODY_LIMIT", limit - 1)
+        try:
+            _fits(lines)
+        except MessageTooLong:
+            break
+        limit -= 1
+    monkeypatch.setattr(messages, "BODY_LIMIT", limit)
+    _fits(lines)
+    with pytest.raises(MessageTooLong):
+        _fits(_cart(2))
+
+
+def test_check_fits_uses_the_worst_case_not_this_carts_own_flags(monkeypatch):
+    lines = _cart(1)
+    easy = show("kid_card", Role.KID, "en", lines=lines, is_duplicate=False).text
+    monkeypatch.setattr(
+        messages, "BODY_LIMIT", len(easy)
+    )  # fits with no warning and a short phrase
+    assert len(show("kid_card", Role.KID, "en", lines=lines).text) <= len(easy)
+    with pytest.raises(MessageTooLong):
+        _fits(lines)  # duplicate warning and the longest phrase do not fit
+
+
+def test_check_fits_covers_both_languages_for_the_parent(monkeypatch):
+    lines = _cart(6)
+    kn = show("readback", Role.PARENT, "kn", lines=lines, is_duplicate=True).text
+    en = show("readback", Role.PARENT, "en", lines=lines, is_duplicate=True).text
+    assert len(kn) != len(en)
+    monkeypatch.setattr(messages, "BODY_LIMIT", max(len(kn), len(en)) - 1)
+    with pytest.raises(MessageTooLong):
+        messages.check_fits(lines, {}, 34500, 37500, ADDRESS)
+
+
+def test_payment_refuses_an_order_id_longer_than_the_cap():
+    show("payment", Role.KID, order_id="9" * messages.MAX_ORDER_ID)
+    with pytest.raises(ValueError, match="order id"):
+        show("payment", Role.KID, order_id="9" * (messages.MAX_ORDER_ID + 1))
+
+
+def test_cart_changed_says_nothing_was_ordered_once_in_both_languages():
+    for role in Role:
+        text = show("blocked", role, reason="cart_changed").text
+        assert "The store cart is not the one on the card, so nothing was ordered." in text
+        assert text.lower().count("nothing was ordered") == 1
+        assert "No money was taken." in text
+        kn = show("blocked", role, "kn", reason="cart_changed").text
+        assert kn.count("ಏನನ್ನೂ ಆರ್ಡರ್ ಮಾಡಿಲ್ಲ") == 1 and "ಹಣ ತೆಗೆದುಕೊಂಡಿಲ್ಲ." in kn
+    other = show("blocked", Role.KID, reason="out_of_stock").text
+    assert "Nothing was ordered. No money was taken." in other
+
+
+def test_kannada_parent_messages_say_manevaru_not_magu():
+    for kind, role in pairs():
+        if role is Role.PARENT:
+            assert "ಮಗು" not in show(kind, role, "kn").text
+    for code in FAILED:
+        assert "ಮಗು" not in show("order_failed", Role.PARENT, "kn", code=code).text
+    assert "ಮನೆಯವರ" in show("readback", Role.PARENT, "kn").text
 
 
 def test_text_that_can_never_fit_is_refused_not_cut():

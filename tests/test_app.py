@@ -552,6 +552,7 @@ def test_the_gate_refuses_to_start_when_a_needed_key_is_empty(tmp_path, name):
         ({"parent_number": "abc"}, "digits"),
         ({"kid_number": PARENT}, "different"),
         ({"parent_lang": "fr"}, "PARENT_LANG"),
+        ({"safe_phrase": "w" * 41}, "SAFE_PHRASE"),
         ({"server_key": TOKEN}, "different"),
         ({"internal_token": "short"}, "INTERNAL_TOKEN"),
         ({"server_key": "short"}, "SERVER_KEY"),
@@ -563,6 +564,11 @@ def test_the_gate_refuses_unusable_settings_without_echoing_them(tmp_path, over,
     for value in over.values():
         if len(value) > 5:
             assert value not in str(err.value)
+
+
+def test_a_safe_phrase_of_the_longest_allowed_size_starts(tmp_path):
+    app = make_app(tmp_path, safe_phrase="  " + "w" * 40 + "  ")
+    app.state.actions.db.close()
 
 
 def test_the_demo_household_is_made_once_with_the_stores_own_address(tmp_path):

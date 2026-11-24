@@ -184,7 +184,7 @@ Fixed by tests in `test_contracts.py`. Results:
 | `abort_order` | `{mandate_id, state}` |
 | `get_audit_log` | `{entries: [{ts, event, mandate_id}]}` |
 
-Errors are short codes: `item_not_from_search`, `order_already_open`, `over_cap`, `needs_review`, `not_found`, `store_error`, `not_available`.
+Errors are short codes: `item_not_from_search`, `order_already_open`, `over_cap`, `needs_review`, `not_found`, `store_error`, `not_available`, `order_too_large`.
 
 ### Internal API (webhook to gate)
 
@@ -209,7 +209,7 @@ Written in `gate/messages.py`, in Kannada and English, from the outbox payload o
 | `readback` | parent | Confirm and Stop. "Order again" if duplicate |
 | `waiting_for_kid` | parent | Stop |
 | `replace_cart` | kid | Replace, Not now |
-| `order_failed` | both | `code`: `not_available`, `over_cap`, `store_error`, `internal`, `not_found`, `not_now` |
+| `order_failed` | both | `code`: `not_available`, `over_cap`, `order_too_large`, `store_error`, `internal`, `not_found`, `not_now`. `order_too_large`: the cart cannot be shown in full on one message, so nothing is prepared |
 | `kid_card` | kid | Approve and pay (or Approve duplicate), Reject |
 | `sent_to_kid` | parent | Stop |
 | `rejected` | parent | No buttons |
@@ -220,7 +220,7 @@ Written in `gate/messages.py`, in Kannada and English, from the outbox payload o
 | `receipt` | both | Paid total, order ID |
 | `needs_review` | both | The kid gets "I have checked it" |
 
-A test fails if a kind, `blocked` reason or `order_failed` code in the code has no template. Long carts lose item lines first and say so. The total, "up to" amount, warning and address stay. Product names are shown as the store gives them, with whitespace collapsed. A Kannada speaker on the team checks the wording. The webhook's own fixed replies (for the kid's free text) are Arya's and are not outbox kinds.
+A test fails if a kind, `blocked` reason or `order_failed` code in the code has no template. `readback`, `sent_to_kid`, `kid_card` and `payment` never hide or shorten an item line (name, pack, quantity, price) or the address. If one does not fit in 1024 characters, rendering raises `MessageTooLong`. So `_prepare` checks the cart first, with worst-case values (duplicate warning on, longest safe-phrase of 40 characters, longest order ID of 40 characters, paid total at the ceiling): `readback` and `sent_to_kid` in both languages, `kid_card` and `payment` in English. If any does not fit, the mandate is aborted with `order_too_large` before it reaches `PREPARED`. Only a `receipt` may drop item lines, and says so. Product names are shown as the store gives them, with whitespace collapsed. A Kannada speaker on the team checks the wording. The webhook's own fixed replies (for the kid's free text) are Arya's and are not outbox kinds.
 
 ## 7. Configuration
 All in `.env`. N7 and A1 add the missing names to `.env.example`.
@@ -230,7 +230,7 @@ All in `.env`. N7 and A1 add the missing names to `.env.example`.
 | gate | `SERVER_KEY`, `INTERNAL_TOKEN`, `DB_PATH`, `POLICY_PATH`, `STORE_MCP_URL`, `PARENT_NUMBER`, `KID_NUMBER`, `SAFE_PHRASE`, `PARENT_LANG` |
 | webhook | `INTERNAL_TOKEN`, `GATE_URL`, `CHANNEL`, `META_TOKEN`, `META_APP_SECRET`, `META_PHONE_ID`, `META_VERIFY_TOKEN`, or the Twilio or Telegram equivalents, `ANTHROPIC_API_KEY`, `LLM_MODEL`, `SARVAM_API_KEY` |
 
-- A process refuses to start if a key it needs is empty. No default secrets. The gate also refuses numbers that are not digits only or are the same, and a changed number against an existing `ordr.db` (delete it to start again).
+- A process refuses to start if a key it needs is empty. No default secrets. The gate also refuses a `SAFE_PHRASE` over 40 characters, an order ID from `checkout` over 40 characters (treated as an unclear checkout), numbers that are not digits only or are the same, and a changed number against an existing `ordr.db` (delete it to start again).
 - `SERVER_KEY` and `INTERNAL_TOKEN`: at least 32 random bytes.
 - Meta's temporary token lasts under 24 hours. Make a system user token.
 

@@ -12,6 +12,7 @@ from test_service import (
     HOME_TEXT,
     KID,
     MILK,
+    OIL5,
     PARENT,
     STRANGER,
     T0,
@@ -21,9 +22,10 @@ from test_service import (
 )
 
 from ordr.config import Settings
-from ordr.contracts import State
+from ordr.contracts import Role, State
 from ordr.gate import actions as actions_module
 from ordr.gate import db as gdb
+from ordr.gate import messages
 from ordr.gate import server as gate_server
 from ordr.gate.actions import Actions
 from ordr.gate.binding import WeakServerKey
@@ -1217,3 +1219,70 @@ def test_order_problem_merges_lines_of_one_sku():
     assert actions_module._order_problem(cart, 99, order, **args) == "over_ceiling"
     fewer = dataclasses.replace(order, items=(("s", 2),))
     assert actions_module._order_problem(cart, 100, fewer, **args) == "items_differ"
+
+
+# ----- a cart that cannot be shown in full is refused (N7 fix) ---------------------------------
+
+
+async def test_a_cart_one_line_too_long_is_refused_at_prepare_with_zero_checkout(w, monkeypatch):
+    await w.search("atta", "milk", "oil")
+    first = (await w.prepare(item(ATTA), item(MILK)))["mandate_id"]
+    cart = await w.store.get_cart()
+    lines = [
+        {"name": ln.name, "pack": ln.pack, "qty": ln.qty, "unit_price_paise": ln.unit_price_paise}
+        for ln in cart.lines
+    ]
+    ceiling = cart.total_paise + w.gate.policy.surge_ceiling_paise
+
+    def fits() -> bool:
+        try:
+            messages.check_fits(
+                lines, cart.fees_paise, cart.total_paise, ceiling, cart.address_text
+            )
+        except messages.MessageTooLong:
+            return False
+        return True
+
+    # The tightest limit at which these two lines still fit. One more line cannot.
+    limit = messages.BODY_LIMIT
+    while True:
+        monkeypatch.setattr(messages, "BODY_LIMIT", limit - 1)
+        if not fits():
+            break
+        limit -= 1
+    monkeypatch.setattr(messages, "BODY_LIMIT", limit)
+
+    ok = (await w.prepare(item(ATTA), item(MILK)))["mandate_id"]
+    assert w.state(first) is State.ABORTED and w.state(ok) is State.PREPARED
+    assert await w.code("confirm", ok, PARENT) == "confirmed"
+    card = next(m for m in w.outbox("kid_card") if m["mandate_id"] == ok)
+    assert "approve" in card["buttons"]
+    text = messages.render("kid_card", Role.KID, card, lang="en", phrase="x" * 40).text
+    for line in card["lines"]:
+        assert messages._line(line, "en", shorten=False) in text
+    assert card["address_text"] in text
+
+    # Stop the good one, then ask for three lines. Refused before PREPARED, nothing is shown.
+    assert await w.code("stop", ok, PARENT) == "stopped"
+    before = len(w.outbox())
+    with pytest.raises(GateError) as err:
+        await w.prepare(item(ATTA), item(MILK), item(OIL5))
+    assert err.value.code == "order_too_large"
+    refused = w.db.conn().execute("SELECT * FROM mandates ORDER BY rowid DESC LIMIT 1").fetchone()
+    assert State(refused["state"]) is State.ABORTED and refused["id"] not in (first, ok)
+    assert refused["cart_hash"] is None and refused["approval_sig"] is None
+    assert [m for m in w.outbox()[before:] if m["mandate_id"] == refused["id"]] == []
+    assert w.open_count() == 0
+    assert w.attempts == 0 and w.placed == [] and STORE.orders == []
+    aborted = (
+        w.db.conn()
+        .execute(
+            "SELECT data_json FROM audit_log WHERE mandate_id = ? AND event = 'aborted'",
+            (refused["id"],),
+        )
+        .fetchone()
+    )
+    assert json.loads(aborted[0])["code"] == "order_too_large"
+    # No card with an Approve button exists for the refused order, so nothing can be approved.
+    assert await w.code("approve", refused["id"]) == "not_current"
+    assert w.attempts == 0
