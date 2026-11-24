@@ -4,7 +4,23 @@
 
 Built for wHACKiest 2026, Track 1: Make MCP Matter.
 
-> **Status:** design done, prototype being built. The repo has the MCP server skeletons, shared contracts and contract tests. The tools are stubs for now.
+> **Status:** working prototype. The demo store, the approval gate, the button presses, the checks, the simulated payment and the messages are built and tested. The chat bot is being built. Kannada voice and Open in store come next.
+
+## Try it
+No WhatsApp, no API key and no accounts needed. Python 3.11 or newer.
+
+```
+git clone https://github.com/Sky00raider/Ordr.git
+cd Ordr
+python -m venv .venv
+.venv\Scripts\activate          # macOS and Linux: source .venv/bin/activate
+pip install -e ".[dev]"
+python -m ordr.demo
+```
+
+It starts the demo store and the gate on your machine and runs six scenes over real MCP calls: the five tools the AI gets, a normal order, a cart changed after the parent confirms (refused, zero `checkout` calls), a price jump (refused), Stop, and the log. The assistant's item choices and the taps are scripted in this demo, and no AI model runs. Add `--pause` to step through it, or `--lang kn` for Kannada messages.
+
+Run the tests with `pytest` (about 3 minutes).
 
 ## The problem
 In Swiggy Instamart's published MCP, `checkout` takes an address and a payment method, but no items. It buys whatever is in the server-side cart at that moment, and no cancel tool is listed. What the user agreed to and what gets bought can drift apart.
@@ -32,7 +48,19 @@ flowchart LR
     G --> L["Audit log"]
 ```
 
-## How it stays safe (by design)
+## What is built
+| Part | State |
+|---|---|
+| Demo store, 10 MCP tools | Built |
+| Gate: five assistant tools, caps, duplicate warning, item IDs only from a recent search | Built |
+| Confirm, Approve, Stop, Reject, Replace, Pay, Don't pay | Built |
+| Final checks, one `checkout` call per order, order read-back | Built |
+| Simulated UPI, receipts, review after an unclear result | Built |
+| Messages in English and Kannada | Built. Kannada wording not yet checked by a speaker |
+| Chat bot (WhatsApp, with Telegram as backup) and AI item matching | Being built |
+| Kannada voice notes, household defaults, Open in store | Next |
+
+## How it stays safe
 - The AI gets five tools and no `checkout`.
 - Confirmations are button presses handled by code. They never pass through the AI.
 - Approval is bound to the exact items, quantities and address, with a maximum total.
@@ -50,6 +78,7 @@ Demo store modelled on Swiggy Instamart's published MCP tools. Not affiliated wi
 
 ## Docs
 - [Product spec](docs/Ordr-PRD-v1.4.md)
+- [Technical design](docs/TRD.md)
 - [Setup and contributing](CONTRIBUTING.md)
 
 ## Credits
