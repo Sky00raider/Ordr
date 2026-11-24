@@ -1,10 +1,10 @@
 # Ordr
 
-**An MCP approval gate between an AI assistant and a grocery store. The AI can shop, but it can't buy.**
+**You say it. They approve it. Voice grocery orders for anyone who cannot order alone, through an MCP gate where the AI can shop, but it can't buy.**
 
 Built for wHACKiest 2026, Track 1: Make MCP Matter.
 
-> **Status:** working prototype. The demo store, the approval gate, the button presses, the checks, the simulated payment and the messages are built and tested. The chat bot is being built. Kannada voice and Open in store come next.
+> **Status:** working prototype. The demo store, the approval gate, the button presses, the checks, the simulated payment, the messages and the chat bot for typed orders are built, with tests. Kannada voice and Open in store come next.
 
 ## Try it
 No WhatsApp, no API key and no accounts needed. Python 3.11 or newer.
@@ -18,28 +18,36 @@ pip install -e ".[dev]"
 python -m ordr.demo
 ```
 
-It starts the demo store and the gate on your machine and runs six scenes over real MCP calls: the five tools the AI gets, a normal order, a cart changed after the parent confirms (refused, zero `checkout` calls), a price jump (refused), Stop, and the log. The assistant's item choices and the taps are scripted in this demo, and no AI model runs. Add `--pause` to step through it, or `--lang kn` for Kannada messages.
+It starts the demo store and the gate on your machine and runs six scenes over real MCP calls: the five tools the AI gets, a normal order, a cart changed after the asker confirms (refused, zero `checkout` calls), a price jump (refused), Stop, and the log. The assistant's item choices and the taps are scripted in this demo, and no AI model runs. Add `--pause` to step through it, or `--lang kn` for Kannada messages.
 
 Run the tests with `pytest` (about 3 minutes).
 
 ## The problem
-In Swiggy Instamart's published MCP, `checkout` takes an address and a payment method, but no items. It buys whatever is in the server-side cart at that moment, and no cancel tool is listed. What the user agreed to and what gets bought can drift apart.
+If you can't use a shopping app, someone else has to order for you, item by item. They take the call or the list, ask back, search each item, fill the cart and pay.
 
-In India, 36% of older parents have at least one migrant child (Sarkar 2023, LASI). Ordering groceries online for them means someone else finds every item, checks it and pays.
+- **Elders** who find apps confusing. 66% of urban elders find technology confusing (HelpAge India 2025, 10 cities).
+- **Kids** with no store account and no UPI.
+- **Cooks and house help** who know what is needed but do not pay.
+
+The person who wants it is not the person who can buy it. Ordr calls them the **asker** and the **approver**.
+
+Letting an AI fill someone else's cart has to be safe. In Swiggy Instamart's published MCP, `checkout` takes an address and a payment method, but no items. It buys whatever is in the server-side cart at that moment, and no cancel tool is listed. What was agreed to and what gets bought can drift apart. Ordr closes that gap.
 
 ## The idea
-1. A parent sends a WhatsApp voice note in Kannada or English.
-2. The bot matches it to exact store items and asks if anything is unclear.
-3. The parent hears the order read back and taps **Confirm**.
-4. Their chosen family member gets a card and taps **Approve and pay**.
+1. The asker sends a WhatsApp voice note in Kannada or English (typed for now).
+2. The bot matches it to exact store items, asks if anything is unclear, and fills the cart in the approver's store account.
+3. The asker gets the order read back and taps **Confirm**.
+4. The approver gets a card and taps **Approve and pay**.
 5. Ordr re-reads the live cart. If it is not exactly what was approved, nothing is ordered.
-6. The family member pays with their own UPI PIN (simulated in the demo).
+6. The approver pays with their own UPI PIN (simulated in the demo).
+
+In the code, the asker is the `parent` role and the approver is the `kid` role, from the elder example we built first. If the asker is under 18, a parent sets it up, consents and approves.
 
 ```mermaid
 flowchart LR
-    P["Parent on WhatsApp"] -->|"voice or text"| W["Ordr webhook"]
+    P["Asker on WhatsApp"] -->|"voice or text"| W["Ordr webhook"]
     P -->|"button presses"| W
-    K["Family member on WhatsApp"] -->|"button presses"| W
+    K["Approver on WhatsApp"] -->|"button presses"| W
     W -->|"speech and text only"| B["WhatsApp bot: language model, MCP client"]
     B -->|"five assistant tools"| G["Ordr MCP server"]
     W -->|"button presses, never via the model"| G
@@ -57,8 +65,9 @@ flowchart LR
 | Final checks, one `checkout` call per order, order read-back | Built |
 | Simulated UPI, receipts, review after an unclear result | Built |
 | Messages in English and Kannada | Built. Kannada wording not yet checked by a speaker |
-| Chat bot (WhatsApp, with Telegram as backup) and AI item matching | Being built |
-| WhatsApp through Vonage's sandbox, as a second WhatsApp provider | Built and tested with mocked HTTP. Not run live with the full flow |
+| Chat bot for typed orders, AI item matching | Built, with tests. Item matching accuracy not measured |
+| WhatsApp through Vonage's sandbox | Built. One full order and one blocked order run live on two phones |
+| WhatsApp through Meta's API, Telegram | Built, with tests. Not run live end to end |
 | Kannada voice notes, household defaults, Open in store | Next |
 
 ## How it stays safe
