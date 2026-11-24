@@ -33,10 +33,10 @@ Full task list: `docs/TRD.md`, section 1.
 ```
 python -m ordr.store.server      # store, port 8001
 python -m ordr.gate.app          # gate, port 8002: MCP at /mcp and the /internal API
-python -m ordr.bot               # bot: starts the channel in CHANNEL (telegram or meta)
+python -m ordr.bot               # bot: starts the channel in CHANNEL (telegram, meta or vonage)
 ```
 
-The store and gate listen on this machine only. Only the bot's port 8003 (Meta) may be exposed, through a tunnel. **Never tunnel 8002.**
+The store and gate listen on this machine only. Only the bot's port 8003 (Meta or Vonage) may be exposed, through a tunnel. **Never tunnel 8002.**
 
 Run the gate as one process. Never use `--workers` or start it twice: the per-account locks live in its memory. The first start makes the demo household from `PARENT_NUMBER`, `KID_NUMBER` and the store's saved address, so start the store first. If you change either number in `.env`, the gate refuses to start: stop it and delete `ordr.db` (and `ordr.db-wal`, `ordr.db-shm` if present).
 
@@ -44,7 +44,7 @@ Run the gate as one process. Never use `--workers` or start it twice: the per-ac
 
 ## Bot setup
 
-The bot needs `INTERNAL_TOKEN` (same value as the gate), `PARENT_NUMBER`, `KID_NUMBER`, `ANTHROPIC_API_KEY` (costs money: set a spending limit on the key) and the keys of its channel. `CHANNEL=telegram` is for testing and backup. `CHANNEL=meta` is the WhatsApp demo.
+The bot needs `INTERNAL_TOKEN` (same value as the gate), `PARENT_NUMBER`, `KID_NUMBER`, `ANTHROPIC_API_KEY` (costs money: set a spending limit on the key) and the keys of its channel. `CHANNEL=telegram` is for testing and backup. `CHANNEL=meta` is the WhatsApp demo. `CHANNEL=vonage` is WhatsApp through Vonage's sandbox, a fallback if Meta's test number is not working.
 
 ### Telegram (no public URL)
 
@@ -64,6 +64,23 @@ The bot uses long polling and private chats only. Buttons are inline buttons. Ch
 6. Both phones send "hi" to the test number first. Without a template, Meta only allows replies within 24 hours of the person's last message.
 
 The webhook checks `X-Hub-Signature-256` on the raw body before reading it and answers 403 if it is wrong. With no `META_APP_SECRET` it answers 403 to everything.
+
+### WhatsApp (Vonage Messages Sandbox)
+
+Built and tested with mocked HTTP only. Not yet run live with the full order flow.
+
+1. In the Vonage dashboard, open the Messages API Sandbox and the WhatsApp tab. Copy the sandbox number into `VONAGE_FROM` (digits only, no `+`).
+2. **Join step:** from each demo phone (parent and kid), send the join phrase shown on that page to the sandbox number. A phone that has not joined gets a 403 on every send. Both phones must join.
+3. Put these in `.env`: `VONAGE_API_KEY`, `VONAGE_API_SECRET`, `VONAGE_SIGNATURE_SECRET` (the dashboard's API settings). Set `CHANNEL=vonage`. The bot refuses to start if one is empty. Secrets may contain `*`, `%` and `^`: paste them as shown.
+4. Start store, gate, then `python -m ordr.bot`. Start the tunnel as in the Meta steps.
+5. In the sandbox page set the webhooks: Inbound URL `<tunnel address>/vonage/inbound`, Status URL `<tunnel address>/vonage/status`. Both are POST, JSON.
+6. Both phones send "hi" first, then use the bot as usual.
+
+The webhooks carry `Authorization: Bearer <JWT>`. The bot accepts the request only if the JWT is HS256 (nothing else), the signature matches `VONAGE_SIGNATURE_SECRET`, `api_key` is ours, `iat` is within 5 minutes, and `payload_hash` equals the SHA-256 of the raw body. Anything else gets 403, and nothing in the body is read. The two `/vonage/...` routes exist only when `CHANNEL=vonage`. In that mode `/webhook` answers 403 to everything.
+
+Sandbox limits: **1 message per second and 100 per month**, then 429. The bot spaces its sends 1.1 s apart. Count rehearsal messages: the 100 is for the month. A 403 or 422 is a permanent failure for that message: the bot retries it with backoff anyway (the outbox does not read the flag), so fix the cause (join step) rather than wait. A 429 is retried the same way.
+
+Voice notes: the payload shape for inbound audio is not in the docs we found. The bot treats `message_type` "audio" as "a voice note" and fetches nothing yet.
 
 ### Watching it work
 

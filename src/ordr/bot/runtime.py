@@ -1,4 +1,7 @@
-"""Puts the bot's parts together for one channel. Used by `__main__` (Telegram) and `app` (Meta)."""
+"""Puts the bot's parts together for one channel.
+
+Used by `__main__` (Telegram) and `app` (Meta, Vonage).
+"""
 
 import asyncio
 import contextlib
@@ -71,5 +74,8 @@ def secrets_of(settings: BotSettings) -> list[str]:
         settings.meta_token,
         settings.meta_app_secret,
         settings.meta_verify_token,
+        settings.vonage_api_key,
+        settings.vonage_api_secret,
+        settings.vonage_signature_secret,
         settings.anthropic_api_key,
     ]

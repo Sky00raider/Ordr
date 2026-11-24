@@ -9,7 +9,7 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-CHANNELS = ("meta", "telegram")
+CHANNELS = ("meta", "telegram", "vonage")
 LANGS = ("kn", "en")
 MAX_NUMBER_DIGITS = 20
 
@@ -23,7 +23,7 @@ class BotSettings(BaseSettings):
 
     internal_token: str = ""
     gate_url: str = "http://127.0.0.1:8002"
-    channel: str = "meta"  # meta or telegram
+    channel: str = "meta"  # meta, vonage or telegram
     parent_number: str = ""
     kid_number: str = ""
     parent_lang: str = "kn"  # kn or en. The kid always gets English
@@ -37,6 +37,11 @@ class BotSettings(BaseSettings):
     meta_phone_id: str = ""
     meta_verify_token: str = ""
 
+    vonage_api_key: str = ""
+    vonage_api_secret: str = ""
+    vonage_signature_secret: str = ""
+    vonage_from: str = ""
+
     anthropic_api_key: str = ""
     llm_model: str = "claude-opus-5-5"
 
@@ -48,7 +53,7 @@ def _digits_only(value: str) -> bool:
 def check_settings(settings: BotSettings) -> None:
     """Refuse to start if a key the chosen channel needs is empty or a setting is unusable."""
     if settings.channel not in CHANNELS:
-        raise StartupError("CHANNEL must be meta or telegram")
+        raise StartupError("CHANNEL must be meta, vonage or telegram")
     needed = {
         "INTERNAL_TOKEN": settings.internal_token,
         "PARENT_NUMBER": settings.parent_number,
@@ -63,6 +68,13 @@ def check_settings(settings: BotSettings) -> None:
             "META_PHONE_ID": settings.meta_phone_id,
             "META_VERIFY_TOKEN": settings.meta_verify_token,
         }
+    elif settings.channel == "vonage":
+        needed |= {
+            "VONAGE_API_KEY": settings.vonage_api_key,
+            "VONAGE_API_SECRET": settings.vonage_api_secret,
+            "VONAGE_SIGNATURE_SECRET": settings.vonage_signature_secret,
+            "VONAGE_FROM": settings.vonage_from,
+        }
     else:
         needed["TELEGRAM_BOT_TOKEN"] = settings.telegram_bot_token
     empty = [name for name, value in needed.items() if not value.strip()]
@@ -73,5 +85,7 @@ def check_settings(settings: BotSettings) -> None:
         raise StartupError("PARENT_NUMBER and KID_NUMBER must be digits only")
     if parent == kid:
         raise StartupError("PARENT_NUMBER and KID_NUMBER must be different")
+    if settings.channel == "vonage" and not _digits_only(settings.vonage_from.strip()):
+        raise StartupError("VONAGE_FROM must be digits only")
     if settings.parent_lang not in LANGS:
         raise StartupError("PARENT_LANG must be kn or en")

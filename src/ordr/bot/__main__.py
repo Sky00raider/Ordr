@@ -1,4 +1,4 @@
-"""`python -m ordr.bot` starts the channel in CHANNEL (meta or telegram).
+"""`python -m ordr.bot` starts the channel in CHANNEL (meta, vonage or telegram).
 
     python -m ordr.bot             start the bot
     python -m ordr.bot --whoami    Telegram only: print the chat id of whoever messages the bot
