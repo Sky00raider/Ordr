@@ -1,8 +1,30 @@
-# Ordr
+<p align="center">
+  <img src="docs/assets/ordr-banner.png" alt="Ordr. You say it. They approve it." width="100%">
+</p>
 
-**You say it. They approve it. Voice grocery orders for anyone who cannot order alone, through an MCP gate where the AI can shop, but it can't buy.**
+<p align="center">
+  <b>Grocery ordering for anyone who cannot order alone.</b><br>
+  One person asks. Another approves and pays. The AI can shop, but it can't buy.
+</p>
 
-Built for wHACKiest 2026, Track 1: Make MCP Matter.
+<p align="center">
+  <a href="https://github.com/Sky00raider/Ordr/actions/workflows/test.yml"><img src="https://github.com/Sky00raider/Ordr/actions/workflows/test.yml/badge.svg?branch=main" alt="Tests"></a>
+  <img src="https://img.shields.io/badge/python-3.11%2B-336699" alt="Python 3.11 or newer">
+  <img src="https://img.shields.io/badge/MCP-FastMCP-12294A" alt="MCP with FastMCP">
+  <img src="https://img.shields.io/badge/store-demo%2C%20no%20real%20orders-C73E54" alt="Demo store, no real orders">
+</p>
+
+<p align="center">
+  <a href="#try-it">Try it</a> &nbsp;|&nbsp;
+  <a href="#the-problem">Problem</a> &nbsp;|&nbsp;
+  <a href="#the-idea">Idea</a> &nbsp;|&nbsp;
+  <a href="#see-it-work">See it work</a> &nbsp;|&nbsp;
+  <a href="#why-mcp">Why MCP</a> &nbsp;|&nbsp;
+  <a href="#what-is-built">What is built</a> &nbsp;|&nbsp;
+  <a href="#limits">Limits</a>
+</p>
+
+Built by **DataBaes** for wHACKiest 2026, Track 1: Make MCP Matter.
 
 > **Status:** working prototype. The demo store, the approval gate, the button presses, the checks, the simulated payment, the messages and the chat bot for typed orders are built, with tests. Kannada voice and Open in store come next.
 
@@ -55,6 +77,25 @@ flowchart LR
     G -->|"only Ordr can call checkout"| S["Dummy Instamart MCP"]
     G --> L["Audit log"]
 ```
+
+## See it work
+Recorded on two phones over Vonage's WhatsApp sandbox. The order was spoken with the phone's voice typing.
+
+| A normal order | The cart changed after Confirm |
+|---|---|
+| ![Two phones showing the paid receipt for Rs 213, simulated UPI](docs/assets/demo-paid.png) | ![Two phones showing Order blocked, store total now Rs 2,189, approved up to Rs 245](docs/assets/demo-blocked.png) |
+| Confirm, approve, pay with simulated UPI. Receipt to both phones. | The live cart is Rs 2,189, approved up to Rs 245. Blocked, and nothing is ordered. |
+
+## Why MCP
+Stores already publish MCP servers, so an AI can search products and fill a cart. Our MCP server sits in between and gives the AI five tools. None of them is `checkout`.
+
+| Tool the AI gets | What it does |
+|---|---|
+| `search_products` | Finds items in the store |
+| `prepare_order` | Builds the cart. Ordr sends the read-back |
+| `get_order_status` | Says where an order is |
+| `abort_order` | Stops this household's order |
+| `get_audit_log` | Shows what happened and when |
 
 ## What is built
 | Part | State |
