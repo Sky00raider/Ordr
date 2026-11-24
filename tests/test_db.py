@@ -1,7 +1,9 @@
 """Gate database: atomic moves, one open order per account, restart handling (TRD N3)."""
 
+import json
+import sqlite3
 import threading
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import pytest
 
@@ -37,19 +39,26 @@ def household(conn, n: int = 1, account: str | None = None) -> str:
     )
 
 
-def mandate(conn, household_id: str, state: State = State.PREPARED, **kw) -> str:
-    return gdb.create_mandate(
-        conn,
-        household_id=household_id,
-        cart_json="[]",
-        cart_hash="h",
-        quote_json="{}",
-        total_paise=34500,
-        max_total_paise=37500,
-        ttl=kw.pop("ttl", TTL),
-        state=state,
-        **kw,
+CART = {
+    "cart_json": "[]",
+    "cart_hash": "h",
+    "quote_json": "{}",
+    "total_paise": 34500,
+    "max_total_paise": 37500,
+}
+
+
+def waiting(conn, household_id: str, ttl: timedelta = TTL) -> str:
+    return gdb.create_mandate(conn, household_id=household_id, ttl=ttl)
+
+
+def mandate(conn, household_id: str, ttl: timedelta = TTL) -> str:
+    """A mandate already in PREPARED."""
+    mid = waiting(conn, household_id, ttl)
+    assert transition(
+        conn, mid, State.WAITING_FOR_CART, State.PREPARED, event="prepared", set_fields=CART
     )
+    return mid
 
 
 def state_of(db, mandate_id: str) -> State:
@@ -214,9 +223,8 @@ def test_account_is_blocked_by_every_open_state_and_by_unreviewed_needs_review(d
         try:
             with db.tx() as c:
                 c.execute(
-                    "INSERT INTO mandates (id, household_id, store_account, state, cart_json, "
-                    "cart_hash, quote_json, total_paise, max_total_paise, nonce, created_at, "
-                    "expires_at) VALUES ('second', ?, 'acct1', 'PREPARED', '[]', 'h', '{}', 1, 1, "
+                    "INSERT INTO mandates (id, household_id, store_account, state, nonce, "
+                    "created_at, expires_at) VALUES ('second', ?, 'acct1', 'WAITING_FOR_CART', "
                     "'n2', 't', 't')",
                     (hid,),
                 )
@@ -245,13 +253,122 @@ def test_needs_review_blocks_until_the_kid_has_checked(db):
         mandate(conn, hid)
 
 
-def test_a_mandate_starts_only_as_prepared_or_waiting_for_cart(db):
+def test_a_mandate_always_starts_waiting_with_no_cart(db):
     with db.tx() as conn:
-        hid = household(conn)
-        with pytest.raises(ValueError):
-            mandate(conn, hid, State.APPROVED)
-        mid = mandate(conn, hid, State.WAITING_FOR_CART)
-    assert move(db, mid, State.WAITING_FOR_CART, State.PREPARED)
+        mid = waiting(conn, household(conn))
+        row = gdb.get_mandate(conn, mid)
+    assert row["state"] == State.WAITING_FOR_CART
+    assert all(row[name] is None for name in (*CART, "approval_sig"))
+    with pytest.raises(TypeError), db.tx() as conn:
+        gdb.create_mandate(conn, household_id="x", ttl=TTL, state=State.PREPARED)
+
+
+def test_preparing_sets_the_cart_flag_and_expiry(db):
+    expires = gdb.utc_now() + timedelta(minutes=30)
+    with db.tx() as conn:
+        mid = waiting(conn, household(conn))
+    fields = {**CART, "is_duplicate": True, "expires_at": expires}
+    assert move(db, mid, State.WAITING_FOR_CART, State.PREPARED, set_fields=fields)
+    row = gdb.get_mandate(db.conn(), mid)
+    assert {name: row[name] for name in CART} == CART
+    assert (row["is_duplicate"], row["expires_at"]) == (1, gdb.iso(expires))
+
+
+@pytest.mark.parametrize("name", CART)
+@pytest.mark.parametrize("bad", ["missing", None])
+def test_preparing_needs_cart_hash_quote_and_both_totals(db, name, bad):
+    with db.tx() as conn:
+        mid = waiting(conn, household(conn))
+    fields = {k: v for k, v in CART.items() if k != name}
+    if bad is None:
+        fields[name] = None
+    with pytest.raises(ValueError, match="PREPARED needs"):
+        move(db, mid, State.WAITING_FOR_CART, State.PREPARED, set_fields=fields)
+    assert state_of(db, mid) is State.WAITING_FOR_CART
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {"total_paise": 345.0},
+        {"total_paise": True},
+        {"total_paise": 0},
+        {"max_total_paise": 34499},
+        {"cart_hash": ""},
+        {"expires_at": "2026-12-01"},
+        {"expires_at": datetime(2026, 12, 1)},
+    ],
+)
+def test_preparing_refuses_bad_values(db, bad):
+    with db.tx() as conn:
+        mid = waiting(conn, household(conn))
+    with pytest.raises(ValueError):
+        move(db, mid, State.WAITING_FOR_CART, State.PREPARED, set_fields={**CART, **bad})
+    assert state_of(db, mid) is State.WAITING_FOR_CART
+
+
+SEALED_VALUES = {**CART, "is_duplicate": True, "expires_at": gdb.utc_now()}
+ALL_MOVES = [(old, new) for old, news in TRANSITIONS.items() for new in sorted(news)]
+
+
+def test_sealed_values_cover_every_sealed_column():
+    assert set(SEALED_VALUES) == set(gdb.SEALED_FIELDS)
+
+
+@pytest.mark.parametrize("old,new", ALL_MOVES)
+def test_only_preparing_may_set_the_cart_and_only_approving_the_signature(db, old, new):
+    with db.tx() as conn:
+        mid = waiting(conn, household(conn))
+    for name, value in {**SEALED_VALUES, "approval_sig": "sig"}.items():
+        allowed = (
+            (State.PARENT_CONFIRMED, State.APPROVED)
+            if name == "approval_sig"
+            else (State.WAITING_FOR_CART, State.PREPARED)
+        )
+        if (old, new) == allowed:
+            continue
+        with pytest.raises(ValueError, match="cannot set"):
+            move(db, mid, old, new, set_fields={name: value})
+
+
+@pytest.mark.parametrize("name", [*gdb.SEALED_FIELDS, "approval_sig"])
+def test_sealed_columns_cannot_change_even_by_direct_sql(db, name):
+    mid = confirmed_mandate(db)
+    conn = db.conn()
+    update = f"UPDATE mandates SET {name} = ? WHERE id = ?"  # noqa: S608
+
+    def refused(value):
+        with pytest.raises(sqlite3.IntegrityError, match="column is fixed"):
+            conn.execute(update, (value, mid))
+
+    refused(9)
+    sig = {"approval_sig": "sig"}
+    assert move(db, mid, State.PARENT_CONFIRMED, State.APPROVED, set_fields=sig)
+    refused(9)
+    refused(None)
+    assert move(db, mid, State.APPROVED, State.COMMITTING)
+    refused(9)
+
+
+def test_a_waiting_mandate_can_still_expire(db):
+    with db.tx() as conn:
+        mid = waiting(conn, household(conn), ttl=timedelta(minutes=1))
+    assert gdb.expire_due(db, gdb.utc_now() + timedelta(minutes=5)) == [mid]
+
+
+def test_every_outbox_payload_has_the_mandate_id(db):
+    with db.tx() as conn:
+        mid = waiting(conn, household(conn))
+    sent = [
+        OutboxMsg(Role.PARENT, "read_back", {"a": 1}),
+        OutboxMsg(Role.KID, "note", {"mandate_id": "someone-elses"}),
+    ]
+    assert move(db, mid, State.WAITING_FOR_CART, State.PREPARED, set_fields=CART, outbox=sent)
+    gdb.expire_due(db, gdb.utc_now() + timedelta(hours=2))
+    payloads = [json.loads(r["payload_json"]) for r in db.conn().execute("SELECT * FROM outbox")]
+    assert len(payloads) == 3
+    assert payloads[0] == {"a": 1, "mandate_id": mid}
+    assert all(p["mandate_id"] == mid for p in payloads)
 
 
 def test_nonce_is_unique_and_random(db):
@@ -266,7 +383,7 @@ def test_audit_log_is_a_hash_chain_that_detects_edits(db):
     mid = confirmed_mandate(db)
     move(db, mid, State.PARENT_CONFIRMED, State.APPROVED)
     conn = db.conn()
-    assert count(db, "audit_log") == 3
+    assert count(db, "audit_log") == 4
     assert gdb.verify_chain(conn)
     conn.execute("UPDATE audit_log SET event = 'edited' WHERE seq = 2")
     assert not gdb.verify_chain(conn)
