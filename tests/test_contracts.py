@@ -73,7 +73,7 @@ def test_policy_is_default_deny_and_rejects_typos():
         Policy.model_validate({**policy.model_dump(), "per_order_cap": 1})
 
 
-def test_webhook_refuses_until_built():
+def test_webhook_refuses_unsigned_posts():
     client = TestClient(app)
     assert client.get("/health").json() == {"ok": True}
-    assert client.post("/webhook").status_code == 501
+    assert client.post("/webhook").status_code == 403
