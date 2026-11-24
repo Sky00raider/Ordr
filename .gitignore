@@ -42,3 +42,9 @@ node_modules/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Bot runtime files
+bot.db
+bot.db-wal
+bot.db-shm
+mcp_calls.jsonl
