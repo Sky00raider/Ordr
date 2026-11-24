@@ -213,3 +213,19 @@ async def test_odd_orders_raise(damage):
 
 def test_the_adapter_cannot_pay():
     assert not [name for name in dir(StoreClient) if name.lower() in ("pay", "demo_pay")]
+
+
+def test_an_order_id_too_long_for_the_payment_message_is_not_a_clear_checkout():
+    from ordr.gate.messages import MAX_ORDER_ID
+    from ordr.gate.store_client import parse_checkout
+
+    data = {
+        "paymentMethod": "UPI",
+        "status": "PENDING_PAYMENT",
+        "orderId": "1" * MAX_ORDER_ID,
+        "paasId": "p1",
+        "cartTotal": "345.00",
+    }
+    assert parse_checkout(data).order_id == "1" * MAX_ORDER_ID
+    with pytest.raises(StoreUnavailable, match="too long"):
+        parse_checkout({**data, "orderId": "1" * (MAX_ORDER_ID + 1)})

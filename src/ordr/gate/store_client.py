@@ -15,6 +15,7 @@ from typing import Any
 from fastmcp import Client
 
 from ordr.contracts import Cart, CartLine
+from ordr.gate.messages import MAX_ORDER_ID
 
 STORE_ID = "demo-instamart"
 ITEM_TOTAL_LABEL = "Item total"
@@ -171,6 +172,20 @@ def parse_cart(data: dict) -> Cart:
     )
 
 
+def parse_addresses(data: dict) -> list[tuple[str, str]]:
+    """(address id, address text) in the order the store gives them. Text is kept exactly."""
+    out: list[tuple[str, str]] = []
+    for raw in _list(data.get("addresses"), "addresses"):
+        address = _dict(raw, "address")
+        out.append(
+            (
+                _text(address.get("id"), "address id"),
+                _text(address.get("addressLine"), "addressLine"),
+            )
+        )
+    return out
+
+
 def parse_products(data: dict) -> list[StoreProduct]:
     out: list[StoreProduct] = []
     for raw in _list(data.get("products"), "products"):
@@ -203,8 +218,11 @@ def parse_checkout(data: dict) -> Placed:
     """Only a UPI order that is waiting for payment is accepted."""
     _same(data.get("paymentMethod"), UPI, "payment method")
     _same(data.get("status"), PENDING_PAYMENT, "checkout status")
+    order_id = _text(data.get("orderId"), "orderId")
+    if len(" ".join(order_id.split())) > MAX_ORDER_ID:
+        raise _fail("orderId is too long")  # the payment message must fit
     return Placed(
-        order_id=_text(data.get("orderId"), "orderId"),
+        order_id=order_id,
         paas_id=_text(data.get("paasId"), "paasId"),
         total_paise=paise(data.get("cartTotal"), "checkout total"),
     )
@@ -284,6 +302,9 @@ class StoreClient:
         if not isinstance(body, dict) or body.get("success") is not True:
             raise _fail(f"{tool} envelope")
         return _dict(body.get("data"), f"{tool} data")
+
+    async def get_addresses(self) -> list[tuple[str, str]]:
+        return parse_addresses(await self._call("get_addresses", {}))
 
     async def search_products(self, address_id: str, query: str) -> list[StoreProduct]:
         data = await self._call("search_products", {"addressId": address_id, "query": query})

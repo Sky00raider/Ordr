@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     parent_number: str = ""
     kid_number: str = ""
     safe_phrase: str = ""
+    parent_lang: str = "kn"  # kn or en. The kid always gets English
     channel: str = "meta"
     webhook_secret: str = ""
     llm_api_key: str = ""
