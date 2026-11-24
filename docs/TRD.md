@@ -184,7 +184,7 @@ Fixed by tests in `test_contracts.py`. Results:
 | `abort_order` | `{mandate_id, state}` |
 | `get_audit_log` | `{entries: [{ts, event, mandate_id}]}` |
 
-Errors are short codes: `item_not_from_search`, `order_already_open`, `over_cap`, `needs_review`, `not_found`, `store_error`.
+Errors are short codes: `item_not_from_search`, `order_already_open`, `over_cap`, `needs_review`, `not_found`, `store_error`, `not_available`.
 
 ### Internal API (webhook to gate)
 

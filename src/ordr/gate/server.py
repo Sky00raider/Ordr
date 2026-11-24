@@ -1,15 +1,24 @@
 """Ordr MCP server. Exactly five tools. No checkout, ever.
 
-The household comes from the authenticated session, never from an argument.
+The household comes from the webhook's headers (`x-ordr-internal`, `x-ordr-number`), never from
+an argument. The work is in `service.py`.
 """
 
 from typing import Annotated, Any
 
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
+from fastmcp.server.dependencies import get_http_headers
 from pydantic import BaseModel, ConfigDict, Field
 
+from ordr.config import Settings, load_policy
+from ordr.gate.db import Database
+from ordr.gate.service import Caller, Gate, GateError
+from ordr.gate.store_client import StoreClient
+
 mcp = FastMCP("ordr")
+
+_gate: Gate | None = None
 
 
 class OrderItemIn(BaseModel):
@@ -21,39 +30,89 @@ class OrderItemIn(BaseModel):
     heard_as: str
 
 
-def _todo() -> Any:
-    raise ToolError("Not built yet")
+def build_gate(settings: Settings | None = None) -> Gate:
+    """Gate from .env and policy.json. Raises if INTERNAL_TOKEN is empty or too short."""
+    settings = settings or Settings()
+    return Gate(
+        Database(settings.db_path),
+        StoreClient(settings.store_mcp_url),
+        load_policy(settings.policy_path),
+        settings.internal_token,
+    )
+
+
+def set_gate(gate: Gate | None) -> None:
+    global _gate
+    _gate = gate
+
+
+def get_gate() -> Gate:
+    global _gate
+    if _gate is None:
+        _gate = build_gate()
+    return _gate
+
+
+def _caller() -> tuple[Gate, Caller]:
+    headers = get_http_headers()
+    gate = get_gate()
+    return gate, gate.authenticate(headers.get("x-ordr-internal"), headers.get("x-ordr-number"))
+
+
+def _refuse(exc: GateError) -> ToolError:
+    return ToolError(exc.code)
 
 
 @mcp.tool
-def search_products(query: str) -> dict:
+async def search_products(query: str) -> dict:
     """Search the store. Marks the household's usual item."""
-    return _todo()
+    try:
+        gate, caller = _caller()
+        return await gate.search_products(caller, query)
+    except GateError as exc:
+        raise _refuse(exc) from exc
 
 
 @mcp.tool
-def prepare_order(items: Annotated[list[OrderItemIn], Field(min_length=1)]) -> dict:
+async def prepare_order(items: Annotated[list[OrderItemIn], Field(min_length=1)]) -> dict:
     """Build the cart. Ordr sends the read-back to the parent."""
-    return _todo()
+    try:
+        gate, caller = _caller()
+        return await gate.prepare_order(caller, [item.model_dump() for item in items])
+    except GateError as exc:
+        raise _refuse(exc) from exc
 
 
 @mcp.tool
-def get_order_status(mandate_id: str) -> dict:
+async def get_order_status(mandate_id: str) -> dict:
     """Status of this household's order."""
-    return _todo()
+    try:
+        gate, caller = _caller()
+        return await gate.get_order_status(caller, mandate_id)
+    except GateError as exc:
+        raise _refuse(exc) from exc
 
 
 @mcp.tool
-def abort_order(mandate_id: str) -> dict:
+async def abort_order(mandate_id: str) -> dict:
     """Stop this household's order. Always safe."""
-    return _todo()
+    try:
+        gate, caller = _caller()
+        return await gate.abort_order(caller, mandate_id)
+    except GateError as exc:
+        raise _refuse(exc) from exc
 
 
 @mcp.tool
-def get_audit_log(limit: Annotated[int, Field(gt=0, le=100)] = 20) -> dict:
+async def get_audit_log(limit: Annotated[int, Field(gt=0, le=100)] = 20) -> dict[str, Any]:
     """Recent log entries for this household."""
-    return _todo()
+    try:
+        gate, caller = _caller()
+        return await gate.get_audit_log(caller, limit)
+    except GateError as exc:
+        raise _refuse(exc) from exc
 
 
 if __name__ == "__main__":
+    get_gate()  # refuse to start with a weak INTERNAL_TOKEN
     mcp.run(transport="http", host="127.0.0.1", port=8002)
