@@ -95,6 +95,11 @@ def _key_bytes(server_key: str) -> bytes:
     return key
 
 
+def check_server_key(server_key: str) -> None:
+    """Call at start. Raises WeakServerKey."""
+    _key_bytes(server_key)
+
+
 def _message(approval: Approval) -> bytes:
     fields = asdict(approval)
     ceiling = fields["max_total_paise"]

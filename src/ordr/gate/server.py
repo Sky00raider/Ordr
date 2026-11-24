@@ -12,9 +12,11 @@ from fastmcp.server.dependencies import get_http_headers
 from pydantic import BaseModel, ConfigDict, Field
 
 from ordr.config import Settings, load_policy
-from ordr.gate.db import Database
+from ordr.gate.actions import Actions
+from ordr.gate.db import Database, recover_on_start
 from ordr.gate.service import Caller, Gate, GateError
 from ordr.gate.store_client import StoreClient
+from ordr.gate.upi import SimulatedUpi
 
 mcp = FastMCP("ordr")
 
@@ -39,6 +41,18 @@ def build_gate(settings: Settings | None = None) -> Gate:
         load_policy(settings.policy_path),
         settings.internal_token,
     )
+
+
+def build_actions(settings: Settings | None = None) -> Actions:
+    """Gate plus button presses. Call once per process: it also cleans up after a restart.
+
+    Raises if INTERNAL_TOKEN or SERVER_KEY is empty or too short.
+    """
+    settings = settings or Settings()
+    gate = build_gate(settings)
+    actions = Actions(gate, SimulatedUpi.for_store(settings.store_mcp_url), settings.server_key)
+    recover_on_start(gate.db)
+    return actions
 
 
 def set_gate(gate: Gate | None) -> None:
@@ -114,5 +128,5 @@ async def get_audit_log(limit: Annotated[int, Field(gt=0, le=100)] = 20) -> dict
 
 
 if __name__ == "__main__":
-    get_gate()  # refuse to start with a weak INTERNAL_TOKEN
+    set_gate(build_actions().gate)  # refuse to start with a weak INTERNAL_TOKEN or SERVER_KEY
     mcp.run(transport="http", host="127.0.0.1", port=8002)

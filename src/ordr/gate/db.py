@@ -9,6 +9,8 @@ Rules kept here:
   and no cart. Cart, hash, quote, totals, duplicate flag and expiry are set once, on the move to
   PREPARED. `approval_sig` is set only on the move from
   PARENT_CONFIRMED to APPROVED. Triggers refuse any other change to them.
+- `stop_requested_at` is a Stop that came too late to prevent the order. Once set it stays.
+- Every move to NEEDS_REVIEW queues `needs_review` to both people, in the same transaction.
 - Transactions start with BEGIN IMMEDIATE and never stay open across a store call.
 - Money is whole paise. Times are UTC, fixed-width ISO text, so text order is time order.
 """
@@ -42,9 +44,11 @@ SEALED_FIELDS = (*CART_FIELDS, "is_duplicate", "expires_at")
 
 PREPARE_MOVE = (State.WAITING_FOR_CART, State.PREPARED)
 APPROVE_MOVE = (State.PARENT_CONFIRMED, State.APPROVED)
+PLACED_MOVE = (State.COMMITTING, State.PLACED_PENDING_PAYMENT)
 SETTABLE_ON: dict[tuple[State, State], frozenset[str]] = {
     PREPARE_MOVE: frozenset(SEALED_FIELDS),
     APPROVE_MOVE: frozenset({"approval_sig"}),
+    PLACED_MOVE: frozenset({"pay_by"}),
 }
 
 GENESIS = "0" * 64
@@ -100,6 +104,8 @@ CREATE TABLE IF NOT EXISTS mandates (
     order_id TEXT,
     paas_id TEXT,
     reason TEXT,
+    stop_requested_at TEXT,
+    pay_by TEXT,
     reviewed_at TEXT
 );
 CREATE UNIQUE INDEX IF NOT EXISTS one_open_mandate ON mandates(store_account)
@@ -110,6 +116,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS one_open_mandate ON mandates(store_account)
 CREATE TRIGGER IF NOT EXISTS seal_request BEFORE UPDATE ON mandates
 WHEN NEW.request_json IS NOT OLD.request_json
 BEGIN SELECT RAISE(ABORT, 'seal_request: column is fixed'); END;
+CREATE TRIGGER IF NOT EXISTS seal_stop BEFORE UPDATE ON mandates
+WHEN OLD.stop_requested_at IS NOT NULL AND NEW.stop_requested_at IS NOT OLD.stop_requested_at
+BEGIN SELECT RAISE(ABORT, 'seal_stop: column is fixed'); END;
 CREATE TABLE IF NOT EXISTS search_results (
     household_id TEXT NOT NULL REFERENCES households(id),
     sku_id TEXT NOT NULL,
@@ -420,9 +429,9 @@ def transition(
     )
     if cursor.rowcount != 1:
         return False
-    household_id = conn.execute(
-        "SELECT household_id FROM mandates WHERE id = ?", (mandate_id,)
-    ).fetchone()["household_id"]
+    row = get_mandate(conn, mandate_id)
+    assert row is not None
+    household_id = row["household_id"]
     append_audit(
         conn,
         household_id,
@@ -434,7 +443,48 @@ def transition(
     for msg in outbox:
         payload = {**msg.payload, "mandate_id": mandate_id}
         enqueue(conn, household_id, OutboxMsg(msg.to_role, msg.kind, payload))
+    if new is State.NEEDS_REVIEW:
+        payload = {"mandate_id": mandate_id, "order_id": row["order_id"]}
+        for role in (Role.KID, Role.PARENT):
+            enqueue(conn, household_id, OutboxMsg(role, "needs_review", payload))
     return True
+
+
+def request_stop(conn: sqlite3.Connection, mandate_id: str, now: datetime | None = None) -> bool:
+    """A Stop after COMMITTING began. True if this call set it. Not a state change."""
+    now = now or utc_now()
+    cursor = conn.execute(
+        "UPDATE mandates SET stop_requested_at = ? WHERE id = ? AND stop_requested_at IS NULL "
+        "AND state IN ('COMMITTING', 'PLACED_PENDING_PAYMENT')",
+        (iso(now), mandate_id),
+    )
+    if cursor.rowcount != 1:
+        return False
+    row = get_mandate(conn, mandate_id)
+    assert row is not None
+    append_audit(conn, row["household_id"], mandate_id, "stop_requested", {}, now)
+    return True
+
+
+def record_order(
+    conn: sqlite3.Connection,
+    mandate_id: str,
+    order_id: str,
+    paas_id: str,
+    now: datetime | None = None,
+) -> None:
+    """Save what checkout returned while still COMMITTING, so a crash keeps the order ID."""
+    cursor = conn.execute(
+        "UPDATE mandates SET order_id = ?, paas_id = ? WHERE id = ? AND state = 'COMMITTING'",
+        (order_id, paas_id, mandate_id),
+    )
+    if cursor.rowcount != 1:
+        raise RuntimeError("order recorded outside COMMITTING")
+    row = get_mandate(conn, mandate_id)
+    assert row is not None
+    append_audit(
+        conn, row["household_id"], mandate_id, "checkout_returned", {"order_id": order_id}, now
+    )
 
 
 def mark_reviewed(conn: sqlite3.Connection, mandate_id: str, now: datetime | None = None) -> bool:
@@ -491,10 +541,7 @@ def recover_on_start(db: Database, now: datetime | None = None) -> list[tuple[st
             if new is State.EXPIRED:
                 outbox = [OutboxMsg(Role.KID, "expired", {})]
             else:
-                outbox = [
-                    OutboxMsg(Role.KID, "needs_review", {}),
-                    OutboxMsg(Role.PARENT, "needs_review", {}),
-                ]
+                outbox = []  # transition() tells both people
             if transition(
                 conn,
                 row["id"],
@@ -509,24 +556,26 @@ def recover_on_start(db: Database, now: datetime | None = None) -> list[tuple[st
     return done
 
 
+def expire_one(conn: sqlite3.Connection, row: sqlite3.Row, now: datetime) -> bool:
+    """Expire this mandate if it is past `expires_at`. True if it is past, whoever moved it."""
+    if row["expires_at"] > iso(now):
+        return False
+    old = State(row["state"])
+    outbox = [OutboxMsg(Role.PARENT, "expired", {})]
+    if old not in (State.PREPARED, State.WAITING_FOR_CART):
+        outbox.append(OutboxMsg(Role.KID, "expired", {}))
+    transition(conn, row["id"], old, State.EXPIRED, event="expired", outbox=outbox, now=now)
+    return True
+
+
 def expire_due(db: Database, now: datetime | None = None) -> list[str]:
     """Expire mandates past `expires_at` that have not reached COMMITTING."""
     now = now or utc_now()
     expirable = [s for s in State if State.EXPIRED in TRANSITIONS.get(s, frozenset())]
     marks = ", ".join("?" for _ in expirable)
-    expired: list[str] = []
     with db.tx() as conn:
         rows = conn.execute(
-            f"SELECT id, state FROM mandates WHERE state IN ({marks}) AND expires_at <= ?",  # noqa: S608
+            f"SELECT * FROM mandates WHERE state IN ({marks}) AND expires_at <= ?",  # noqa: S608
             (*[s.value for s in expirable], iso(now)),
         ).fetchall()
-        for row in rows:
-            old = State(row["state"])
-            outbox = [OutboxMsg(Role.PARENT, "expired", {})]
-            if old not in (State.PREPARED, State.WAITING_FOR_CART):
-                outbox.append(OutboxMsg(Role.KID, "expired", {}))
-            if transition(
-                conn, row["id"], old, State.EXPIRED, event="expired", outbox=outbox, now=now
-            ):
-                expired.append(row["id"])
-    return expired
+        return [row["id"] for row in rows if expire_one(conn, row, now)]
